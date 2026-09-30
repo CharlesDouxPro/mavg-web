@@ -37,8 +37,8 @@ if [[ -z "${FORCE:-}" ]] && docker manifest inspect "$IMAGE" > /dev/null 2>&1; t
   exit 0
 fi
 
-# Serverless Containers tourne en amd64 : on le fixe pour qu'un build depuis un Mac ARM marche aussi.
-docker build --platform linux/amd64 --secret id=env,src=.env -t "$IMAGE" -t "$LATEST" .
-docker push "$IMAGE"
-docker push "$LATEST"
-echo "Poussée : $IMAGE (et latest)"
+# amd64 pour les serveurs (Serverless Containers, instances), arm64 pour les Mac Apple Silicon :
+# `docker pull` choisit tout seul la bonne. Construit sans émulation (voir le Dockerfile).
+docker buildx build --platform linux/amd64,linux/arm64 --secret id=env,src=.env \
+  -t "$IMAGE" -t "$LATEST" --push .
+echo "Poussée : $IMAGE (et latest), pour linux/amd64 et linux/arm64"
