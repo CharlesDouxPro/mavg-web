@@ -1,5 +1,7 @@
-# Le service web seul, avec la configuration de .env :
-#   docker compose up -d --build              → http://localhost:8080
+# MAVG Studio, avec la configuration de .env :
+#   docker compose pull && docker compose up -d   → l'image du registre (latest), http://localhost:8080
+#   WEB_TAG=<sha> docker compose up -d            → une version précise
+#   docker compose up -d --build                  → construite depuis ce dossier
 #
 # Pour essayer sans toucher à la vraie file, une base locale jetable :
 #   docker compose --profile local-db up -d --build
@@ -13,8 +15,8 @@ name: mavg-web
 services:
   web:
     build: .
-    # Tag poussé par `scripts/push.sh` (le SHA du commit) ; `dev` pour un build local.
-    image: rg.fr-par.scw.cloud/mavg-container-registery/mavg-web:${WEB_TAG:-dev}
+    # Tags poussés par `scripts/push.sh` : le SHA du commit, et latest.
+    image: rg.fr-par.scw.cloud/mavg-container-registery/mavg-web:${WEB_TAG:-latest}
     restart: unless-stopped
     env_file:
       - path: .env

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Construit et pousse l'image du service web vers le registre Scaleway, taguée au SHA du commit.
+# Construit et pousse l'image du service web vers le registre Scaleway, taguée au SHA du commit
+# et `latest` (ce que `docker compose pull` récupère par défaut sur un autre poste).
 #
 # Connexion : `docker login rg.fr-par.scw.cloud -u nologin --password-stdin` une fois,
 # ou SCW_SECRET_KEY dans l'environnement.
@@ -17,6 +18,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 IMAGE="$REGISTRY/mavg-web:$(git rev-parse --short=12 HEAD)"
+LATEST="$REGISTRY/mavg-web:latest"
 
 if [[ -n "${SCW_SECRET_KEY:-}" ]]; then
   docker login rg.fr-par.scw.cloud -u nologin --password-stdin <<< "$SCW_SECRET_KEY" > /dev/null
@@ -28,6 +30,7 @@ if docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
 fi
 
 # Serverless Containers tourne en amd64 : on le fixe pour qu'un build depuis un Mac ARM marche aussi.
-docker build --platform linux/amd64 -t "$IMAGE" .
+docker build --platform linux/amd64 -t "$IMAGE" -t "$LATEST" .
 docker push "$IMAGE"
-echo "Poussée : $IMAGE"
+docker push "$LATEST"
+echo "Poussée : $IMAGE (et latest)"
