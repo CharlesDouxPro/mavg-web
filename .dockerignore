@@ -1,0 +1,15 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.mypy_cache
+__pycache__
+*.py[oc]
+frontend/node_modules
+frontend/dist
+tests
+scripts
+
+# Secrets : passés au conteneur par l'environnement, jamais copiés dans l'image.
+.env
+.env.*
