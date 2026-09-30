@@ -107,25 +107,25 @@ scripts/push.sh        # construit et pousse l'image : tag au SHA du commit, et 
 
 ## Récupérer et lancer l'image sur un poste
 
-Il suffit de Docker et d'un fichier `.env` (modèle : `.env.example`) ; pas besoin du code.
+L'image **embarque ses secrets** (le `.env` du poste qui l'a construite) : il suffit de Docker,
+sans fichier ni code. Elle ne doit donc vivre que dans le registre **privé**, et changer un
+secret demande de reconstruire et repousser l'image.
 
 ```bash
 # une fois : se connecter au registre (la clé secrète Scaleway sert de mot de passe)
 docker login rg.fr-par.scw.cloud -u nologin --password-stdin <<< "$SCW_SECRET_KEY"
 
-# depuis ce dossier (docker-compose.yml + .env) :
-docker compose pull && docker compose up -d          # → http://localhost:8080
+docker run -d --name mavg-studio --restart unless-stopped -p 127.0.0.1:8080:8080 \
+  rg.fr-par.scw.cloud/mavg-container-registery/mavg-web:latest     # → http://localhost:8080
 
-# ou sans le repo, avec le seul .env :
-docker run -d --name mavg-studio --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 --env-file .env \
-  rg.fr-par.scw.cloud/mavg-container-registery/mavg-web:latest
+# ou, depuis ce dossier :
+docker compose pull && docker compose up -d
 ```
 
-Mettre à jour : `docker compose pull && docker compose up -d`. Sans guillemets autour des
-valeurs du `.env` : `docker run --env-file` les garderait dans la valeur.
+Mettre à jour : `docker pull …/mavg-web:latest` puis relancer le conteneur. Une variable passée
+au lancement (`-e MONGO_CONNECTION_STRING=…`) prime sur la valeur embarquée.
 
 ## Déployer (Scaleway Serverless Containers)
 
-Variables à fournir au conteneur : `MONGO_CONNECTION_STRING`, `MONGO_PLATFORM_DATABASE_NAME`,
-`SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `WEB_USER`, `WEB_PASSWORD`. Jamais `AUTH_DISABLED`.
+L'image embarque `AUTH_DISABLED=1` (usage local). Sur une URL publique, réactiver l'accès
+protégé : `AUTH_DISABLED=0`, `WEB_USER`, `WEB_PASSWORD` dans les variables du conteneur.

@@ -30,6 +30,11 @@ COPY app/ app/
 # dans la chaîne de connexion, relatif à /app.
 COPY certs/ certs/
 COPY --from=front /front/dist frontend/dist
+# Les secrets (Mongo, bucket, accès) sont embarqués : l'image suffit à tout lancer, sans
+# fichier sur le poste. Elle ne doit donc vivre que dans le registre PRIVÉ. Fournis par
+# `scripts/push.sh` (--secret id=env,src=.env) ; une variable passée au lancement (-e) prime.
+RUN --mount=type=secret,id=env,required=true \
+    install -o web -g web -m 0400 /run/secrets/env /app/.env
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
@@ -37,5 +42,6 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 USER web
 EXPOSE 8080
 # PORT est fixé par la plateforme (Scaleway Serverless Containers : 8080 par défaut).
-# Sans WEB_USER / WEB_PASSWORD, le service refuse de démarrer : c'est voulu.
+# L'image embarque le .env du poste de build (AUTH_DISABLED=1 pour un usage local). Sur une
+# URL publique : -e AUTH_DISABLED=0 -e WEB_USER=… -e WEB_PASSWORD=…
 CMD ["sh", "-c", "exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'"]

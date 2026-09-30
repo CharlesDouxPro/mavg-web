@@ -17,6 +17,12 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
+# Les secrets du .env sont embarqués dans l'image : elle ne doit aller que dans le registre privé.
+if [[ ! -f .env ]]; then
+  echo "Pas de .env : l'image embarque ses secrets depuis ce fichier (modèle : .env.example)." >&2
+  exit 1
+fi
+
 IMAGE="$REGISTRY/mavg-web:$(git rev-parse --short=12 HEAD)"
 LATEST="$REGISTRY/mavg-web:latest"
 
@@ -30,7 +36,7 @@ if docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
 fi
 
 # Serverless Containers tourne en amd64 : on le fixe pour qu'un build depuis un Mac ARM marche aussi.
-docker build --platform linux/amd64 -t "$IMAGE" -t "$LATEST" .
+docker build --platform linux/amd64 --secret id=env,src=.env -t "$IMAGE" -t "$LATEST" .
 docker push "$IMAGE"
 docker push "$LATEST"
 echo "Poussée : $IMAGE (et latest)"
