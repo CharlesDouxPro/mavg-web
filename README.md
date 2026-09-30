@@ -1,120 +1,109 @@
-# mavg-web
+# MAVG Studio
 
-Un formulaire web qui pousse des tâches dans la file MongoDB du worker [`mavg`](../mavg).
-Une tâche envoyée arrive en `pending` dans la collection `tasks`. Le worker la prend
-à son prochain passage, en commençant par la plus récente.
+L'interface web du worker vidéo [`mavg`](../mavg). On y enregistre des **channels** (des
+configs de base : brief, avatar, voix, style, paramètres), on les édite, et on **lance des
+runs** depuis eux en remplissant leurs paramètres. Chaque `${paramètre}` cité dans le brief
+est remplacé par la valeur du run.
 
 ```
-Navigateur ──▶ FastAPI ── /api/*  ──▶ MongoDB (collection tasks) ◀── worker mavg (main.py)
-                   └───── /       ──▶ build React (frontend/dist)
+Channels ──édite──▶ Mongo.channels          (mis à jour en place, versionné)
+    │ Lancer + paramètres
+    ▼
+rendu ${…} ──▶ Mongo.tasks (copie figée, pending) ──▶ worker mavg (FIFO) ──▶ bucket + e-mail
+                         ▲                                 │
+Runs · Galerie ◀── statut, étape, titre, vidéo ◀───────────┘
 ```
 
-Un seul processus sert l'API et le front, sur une seule origine, donc sans CORS. Le navigateur
-ne parle jamais à MongoDB : la chaîne de connexion reste côté serveur.
+Un seul processus sert l'API (`/api`) et le front (`/`), sur une seule origine. Le navigateur
+ne parle jamais à MongoDB ni au bucket : il n'y lit qu'au travers de liens signés.
+
+## Les trois onglets
+
+- **Channels** — la liste et l'éditeur. Général (nom, style, langue), Brief (prompt à
+  `${…}` surlignés, aperçu en direct de ce que l'agent reçoit), Paramètres de run (type,
+  défaut, requis ; renommer met à jour les citations), Avatar & voix (avatars du bucket,
+  import par glisser-déposer, catalogue de voix à écouter), Publication (dossier, e-mail,
+  mentions obligatoires), Modèles, Avancé. `Ctrl+S` enregistre.
+- **Runs** — la file dans l'ordre où le worker la traite, et l'historique. Chaque run
+  montre son étape en direct (planification → rendu → publication), sa vidéo, son texte
+  de publication, son erreur. « Relancer… » rouvre le formulaire avec les mêmes valeurs.
+- **Galerie** — toutes les vidéos publiées dans le bucket, lues au survol.
+
+Un lien `#/runs/<task_id>` ouvre directement le détail d'un run.
 
 ## Démarrer en local
 
 Prérequis : [uv](https://docs.astral.sh/uv/) et Node 22 ou plus.
 
 ```bash
-cp .env.example .env          # renseigner MONGO_CONNECTION_STRING et MONGO_PLATFORM_DATABASE_NAME
+cp .env.example .env          # Mongo, clés du bucket, et WEB_USER / WEB_PASSWORD (ou AUTH_DISABLED=1)
 uv sync
 (cd frontend && npm install)
 
-uv run uvicorn app.main:app --reload       # API sur :8000
-(cd frontend && npm run dev)               # front sur :5173, /api relayé vers :8000
+uv run uvicorn app.main:create_app --factory --reload   # API sur :8000
+(cd frontend && npm run dev)                           # front sur :5173, /api relayé vers :8000
 ```
 
-**Avec la vraie chaîne de connexion, une tâche poussée sera traitée par le worker.** Pour
-faire des essais, utilisez une base locale jetable :
+**Avec la vraie base, un run lancé sera traité par le worker** (et consommera du GPU). Pour
+essayer sans risque, une base locale jetable :
 
 ```bash
-docker compose --profile local-db up -d mongo
-# puis dans .env : MONGO_CONNECTION_STRING=mongodb://127.0.0.1:27017
+docker compose --profile local-db up -d mongo     # puis MONGO_CONNECTION_STRING=mongodb://localhost:27017
 ```
 
-Pour tout lancer comme en production (image Docker, front compilé, port 8080) :
+Les premiers channels se créent à partir des tâches déjà passées dans la file :
 
 ```bash
-docker compose up -d --build     # http://localhost:8080
+uv run python scripts/seed_channels.py --dry-run   # ce qui serait créé
+uv run python scripts/seed_channels.py
 ```
 
-## Le formulaire
+## Ce que le serveur garantit
 
-- **Modèle de tâche** : pré-remplit tout le formulaire. Les modèles sont les fichiers
-  `templates/*.json`, c'est-à-dire une tâche complète sans `created_at` ni `status`, plus un `label`.
-- **Essentiel** : identifiant, chaîne, email du rapport, brief, style, langue, `params`
-  (le sujet précis de la vidéo) et avatar.
-- **Options avancées** : les modèles (`provider`, `model_name`, `base_url`, `token`) et
-  les réglages LLM, rendu, plan, sous-titres, publication, scraper et stockage. Cette partie est
-  générée à partir du schéma : un champ ajouté à `task_config.py` y apparaît sans modifier le front,
-  et sa docstring sert de texte d'aide.
-- **Vérifier** affiche le document qui serait inséré, sans l'insérer (l'équivalent de
-  `push_task.py --dry-run`). **Pousser en pending** l'insère.
-- **File de tâches** : les 20 dernières tâches et leur statut.
-
-### Ce que le serveur refuse, même quand le schéma l'accepte
-
-| Règle | Pourquoi |
-|---|---|
-| `task_id` limité à `[A-Za-z0-9_-]`, 64 caractères au plus | Le worker en fait un dossier (`runs/<task_id>/`). |
-| Secrets (`token`, `access_key`, `secret_key`) uniquement sous la forme `${VAR}` | La valeur se résout chez le worker et ne passe jamais par la base. |
-| Seules les variables `${VAR}` présentes dans les modèles sont admises | Le worker résout n'importe quelle `${VAR}`, n'importe où dans la tâche : `${MONGO_CONNECTION_STRING}` dans un prompt ferait fuiter ce secret. |
-| `render.output_dir`, `render.final_name`, `storage.cache_dir` et `subtitles.ffmpeg_bin` verrouillés | Ce sont des chemins et un binaire de la machine du worker, pas des réglages de la vidéo. |
-| Email du rapport obligatoire | C'est lui qui reçoit le rapport de fin de vidéo. |
-| Pas deux tâches avec le même `task_id` | Le worker met à jour le statut par `task_id`. |
-
-Pour autoriser une nouvelle variable d'environnement, ajoutez-la dans un modèle.
-
-### Le document inséré
-
-Le serveur ajoute `created_at` (UTC), `status: "pending"`, et suffixe l'identifiant par
-`_MMJJ_HHMMSS`, comme `push_task.py`. Le document contient la configuration complète,
-valeurs par défaut comprises : le worker lit exactement ce que le formulaire a affiché.
+- **Pas de secret dans un channel.** Un channel choisit un fournisseur et un nom de modèle ;
+  l'adresse et la clé viennent du registre `PROVIDERS` du worker, sous forme de référence
+  `${FOUNDRY_API_KEY}` résolue sur la machine du worker. Le worker vérifie lui-même qu'une
+  de ses clés ne part que vers l'adresse de son fournisseur.
+- **`${…}` ne sert qu'aux paramètres**, et seulement dans `brief.prompt`, `brief.mood` et
+  `publication.must_include`. Un paramètre non déclaré ou mal écrit est refusé à
+  l'enregistrement ; une valeur de run qui contient `${` est refusée au lancement. Le
+  remplacement se fait en une passe : une valeur n'est jamais relue.
+- **Un run est un instantané.** Modifier un channel ne change pas les runs déjà lancés. Un
+  enregistrement fait sur une version périmée est refusé (409), comme un lancement depuis
+  un formulaire ouvert avant une modification du channel.
+- **Avatar et voix viennent du bucket** (`s3://mavg-object-storage/…`) : une adresse
+  extérieure serait téléchargée par la machine GPU. L'avatar est vérifié avant le lancement.
+- **Chemins et binaires de la machine du worker** (`render.output_dir`, `subtitles.ffmpeg_bin`…)
+  ne s'éditent pas : ils sont remis à leur valeur.
+- **Accès HTTP Basic**, fermé par défaut : sans `WEB_USER` et `WEB_PASSWORD`, le service
+  refuse de démarrer. `AUTH_DISABLED=1` est réservé à un poste de dev.
 
 ## Le schéma partagé avec le worker
 
-`app/task_config.py` est une **copie à l'identique** de `mavg/task_config.py`. Quand le
-schéma change dans `mavg` :
+`app/task_config.py` est une copie de `../mavg/task_config.py` (schéma des tâches, registre
+des fournisseurs, `SCHEMA_VERSION`), et `app/skills.json` liste les styles du worker.
+Après tout changement côté worker :
 
 ```bash
-scripts/sync_schema.sh      # recopie depuis ../mavg/task_config.py
-uv run pytest
+scripts/sync_schema.sh && uv run pytest
 ```
 
-Le test `test_schema_copy_matches_the_worker` échoue tant que les deux copies diffèrent,
-si le repo `mavg` est à côté.
+Le test `test_schema_copy_matches_the_worker` échoue tant que les deux copies divergent.
+Chaque run porte `schema_version` : le worker prévient s'il ne correspond pas au sien.
 
 ## Tests
 
 ```bash
-uv run pytest               # l'API contre un Mongo en mémoire (mongomock)
+uv run pytest          # l'API contre mongomock et un bucket en mémoire
 uv run ruff check .
-(cd frontend && npm run typecheck)
+(cd frontend && npm run build)
 ```
 
-## Configuration
-
-| Variable | Défaut | |
-|---|---|---|
-| `MONGO_CONNECTION_STRING` | | Même chaîne que le worker. Pour la base managée Scaleway, garder `tlsCAFile=certs/mgdb-mavg.pem` (chemin relatif à la racine du repo, ou à `/app` dans l'image). |
-| `MONGO_PLATFORM_DATABASE_NAME` | | |
-| `MONGO_COLLECTION` | `tasks` | La collection que le worker consomme. |
-| `PORT` | `8080` | Dans l'image uniquement. |
-
-## Image
+## Déployer (Scaleway Serverless Containers)
 
 ```bash
-scripts/push.sh     # construit et pousse rg.fr-par.scw.cloud/mavg-container-registery/mavg-web:<sha>
+scripts/push.sh        # construit et pousse l'image, taguée au SHA du commit
 ```
 
-L'image contient Python slim, les dépendances, l'API et le front compilé. Elle n'inclut ni Node
-ni uv, et tourne sous un utilisateur non-root. Aucun secret n'y est copié : ils passent par
-l'environnement.
-
-## Avant une mise en ligne
-
-Ce service n'a **pas encore d'authentification**. Toute personne qui atteint l'URL peut
-pousser des tâches, donc consommer du GPU et des tokens, et faire envoyer des emails. Une
-tâche peut aussi viser une `base_url` arbitraire avec `${FOUNDRY_API_KEY}` comme token : le
-worker y enverrait la clé. Ne l'exposez pas sans login, ou au minimum sans une barrière d'accès.
+Variables à fournir au conteneur : `MONGO_CONNECTION_STRING`, `MONGO_PLATFORM_DATABASE_NAME`,
+`SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `WEB_USER`, `WEB_PASSWORD`. Jamais `AUTH_DISABLED`.

@@ -1,30 +1,15 @@
-"""Le schéma JSON du formulaire, avec l'aide de chaque champ.
+"""L'aide de chaque réglage, lue dans les docstrings d'attribut de `task_config.py`.
 
-Les docstrings d'attribut de `task_config.py` expliquent chaque réglage (pourquoi le
-seed est fixe, ce que coûte `concurrency`…). Pydantic ne les met dans le schéma qu'avec
-`use_attribute_docstrings`, que le fichier du worker n'active pas : on les lit dans le
-source, pour garder la copie de `task_config.py` identique à l'original.
+Ces docstrings expliquent chaque réglage (pourquoi le seed est fixe, ce que coûte
+`concurrency`…). Pydantic ne les met dans le schéma qu'avec `use_attribute_docstrings`,
+que le fichier du worker n'active pas : on les lit dans le source, pour garder la copie
+de `task_config.py` identique à l'original.
 """
 
 import ast
 import inspect
 import re
-from functools import cache
 from types import ModuleType
-
-from app import task_config, tasks
-
-
-@cache
-def form_schema() -> dict:
-    schema = tasks.TaskCreate.model_json_schema()
-    docs = {**attribute_docs(task_config), **attribute_docs(tasks)}
-    for name, definition in [("TaskCreate", schema), *schema.get("$defs", {}).items()]:
-        for field, doc in docs.get(name, {}).items():
-            prop = definition.get("properties", {}).get(field)
-            if prop is not None:
-                prop.setdefault("description", doc)
-    return schema
 
 
 def attribute_docs(module: ModuleType) -> dict[str, dict[str, str]]:

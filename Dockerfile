@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Le service web : FastAPI sert l'API (/api) et le build React (/). Pas de GPU, pas de ffmpeg.
+# MAVG Studio : FastAPI sert l'API (/api) et le build React (/). Pas de GPU, pas de ffmpeg.
 
 # 1. Le front, compilé en fichiers statiques.
 FROM node:24-alpine AS front
@@ -26,7 +26,6 @@ WORKDIR /app
 RUN useradd --system --uid 10001 --no-create-home web
 COPY --from=deps /app/.venv .venv
 COPY app/ app/
-COPY templates/ templates/
 # Le certificat de l'autorité de la base managée : `tlsCAFile=certs/mgdb-mavg.pem`
 # dans la chaîne de connexion, relatif à /app.
 COPY certs/ certs/
@@ -38,4 +37,5 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 USER web
 EXPOSE 8080
 # PORT est fixé par la plateforme (Scaleway Serverless Containers : 8080 par défaut).
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'"]
+# Sans WEB_USER / WEB_PASSWORD, le service refuse de démarrer : c'est voulu.
+CMD ["sh", "-c", "exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'"]
