@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, api, type Catalog } from "./api";
+import { AssistantPage } from "./assistant/AssistantPage";
 import { ChannelsPage } from "./channels/ChannelsPage";
 import { GalleryPage } from "./gallery/GalleryPage";
 import { usePolling } from "./lib/hooks";
@@ -14,6 +15,7 @@ const NAV: { page: Route["page"]; label: string; icon: IconName }[] = [
   { page: "channels", label: "Channels", icon: "layers" },
   { page: "runs", label: "Runs", icon: "list" },
   { page: "gallery", label: "Galerie", icon: "grid" },
+  { page: "assistant", label: "Assistant", icon: "sparkles" },
 ];
 
 export function App() {
@@ -129,6 +131,7 @@ function Shell({ catalog }: { catalog: Catalog }) {
           {route.page === "channels" && <ChannelsPage selected={route.id} />}
           {route.page === "runs" && <RunsPage selected={route.id} />}
           {route.page === "gallery" && <GalleryPage />}
+          {route.page === "assistant" && <AssistantPage selected={route.id} />}
         </main>
       </div>
 

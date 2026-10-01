@@ -1,6 +1,6 @@
 """MAVG Studio : l'API des channels et des runs, et le front React qu'elle sert.
 
-Un seul processus : `/api/*` pour les channels, les runs et les assets, `/` pour le
+Un seul processus : `/api/*` pour les channels, les runs, les assets et l'assistant, `/` pour le
 build du front. Un run lancé arrive en `pending` dans la collection que le worker consomme.
 
     uv run uvicorn app.main:create_app --factory --reload
@@ -16,7 +16,7 @@ from pymongo.errors import PyMongoError
 
 from app import auth
 from app.db import _client, ensure_indexes
-from app.routers import assets, catalog, channels, runs
+from app.routers import assets, assistant, catalog, channels, runs
 from app.settings import Settings
 from app.storage import Storage
 
@@ -64,7 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict:
         return {"status": "ok"}
 
-    for router in (catalog.router, channels.router, runs.router, assets.router):
+    for router in (catalog.router, channels.router, runs.router, assets.router, assistant.router):
         app.include_router(router)
 
     if settings.static_dir.is_dir():

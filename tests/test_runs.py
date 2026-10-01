@@ -34,7 +34,7 @@ def test_launch_inserts_a_rendered_snapshot(client, db, created):
     # Les valeurs restent aussi dans params : « SUJET PRÉCIS » et source_text marchent toujours.
     assert agent["params"] == {"source_url": "https://lequipe.fr/gyokeres", "angle": "la revanche", "duree": "45"}
     assert doc["channel_id"] == "foot-scoop-fr" and doc["channel_version"] == 1
-    assert doc["run_params"]["angle"] == "la revanche" and doc["schema_version"] == 3
+    assert doc["run_params"]["angle"] == "la revanche" and doc["schema_version"] == 4
     # Adresses et clés viennent du registre, pas du channel.
     assert agent["models"]["master_mind"]["token"] == "${FOUNDRY_API_KEY}"
     assert agent["models"]["image_generator"]["model_name"] == "MiniMaxAI/MiniMax-H3"

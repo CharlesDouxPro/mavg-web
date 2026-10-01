@@ -1,4 +1,4 @@
-// Routage par l'ancre de l'URL : #/channels/<id>, #/runs/<task_id>, #/gallery.
+// Routage par l'ancre de l'URL : #/channels/<id>, #/runs/<task_id>, #/gallery, #/assistant/<conversation>.
 // Un lien vers un run se partage (et se met dans un e-mail) tel quel.
 
 import { useEffect, useState } from "react";
@@ -6,12 +6,14 @@ import { useEffect, useState } from "react";
 export type Route =
   | { page: "channels"; id?: string }
   | { page: "runs"; id?: string }
-  | { page: "gallery" };
+  | { page: "gallery" }
+  | { page: "assistant"; id?: string };
 
 export function parse(hash: string): Route {
   const [page, id] = hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   if (page === "runs") return { page: "runs", id: id || undefined };
   if (page === "gallery") return { page: "gallery" };
+  if (page === "assistant") return { page: "assistant", id: id || undefined };
   return { page: "channels", id: id || undefined };
 }
 

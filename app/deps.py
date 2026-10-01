@@ -1,11 +1,11 @@
-"""Les dépendances des routes : les deux collections et le bucket."""
+"""Les dépendances des routes : les collections et le bucket."""
 
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
 from pymongo.collection import Collection
 
-from app.db import channels_collection, tasks_collection
+from app.db import assistant_collection, channels_collection, tasks_collection
 from app.storage import Storage
 
 
@@ -24,5 +24,6 @@ def required_storage(request: Request) -> Storage:
 
 Tasks = Annotated[Collection, Depends(tasks_collection)]
 Channels = Annotated[Collection, Depends(channels_collection)]
+Sessions = Annotated[Collection, Depends(assistant_collection)]
 MaybeStorage = Annotated[Storage | None, Depends(optional_storage)]
 BucketStorage = Annotated[Storage, Depends(required_storage)]

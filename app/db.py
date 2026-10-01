@@ -1,4 +1,5 @@
-"""Les deux collections : la file de tâches que le worker consomme, et les channels."""
+"""Les collections : la file de tâches que le worker consomme, les channels, et les
+conversations de l'assistant."""
 
 import logging
 from functools import lru_cache
@@ -38,6 +39,11 @@ def tasks_collection(request: Request) -> Collection:
 def channels_collection(request: Request) -> Collection:
     settings = request.app.state.settings
     return _collection(settings, settings.channels_collection)
+
+
+def assistant_collection(request: Request) -> Collection:
+    settings = request.app.state.settings
+    return _collection(settings, settings.assistant_collection)
 
 
 def ensure_indexes(tasks: Collection) -> None:
