@@ -1,22 +1,53 @@
-// Choisir l'avatar et la voix dans le bucket : aperçu, import d'avatar, écoute des voix.
+// Choisir l'avatar, les images de référence et la voix dans le bucket : aperçu, import, écoute.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, type AvatarAsset, type VoiceAsset, type VoiceInfo } from "../api";
 import { LANGUAGE_FR, SEX_LABEL, flag } from "../lib/format";
 import { Icon, Spinner } from "../ui/Icon";
-import { Notice, Segmented } from "../ui/kit";
+import { Media, Notice, Segmented } from "../ui/kit";
 import { useToast } from "../ui/overlay";
 
-export function AvatarPicker({
-  value,
-  onPick,
-  suggestedName,
-}: {
+/** Un dossier du bucket qu'on parcourt et où l'on importe. */
+interface Library {
+  list: () => Promise<AvatarAsset[]>;
+  upload: (file: File, name: string) => Promise<AvatarAsset>;
+  accept: string;
+  hint: string;
+  imported: string;
+  unavailable: string;
+}
+
+const AVATARS: Library = {
+  list: api.avatars,
+  upload: api.uploadAvatar,
+  accept: "image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm",
+  hint: "image ou vidéo",
+  imported: "Avatar importé",
+  unavailable: "Avatars indisponibles",
+};
+
+const REFERENCES: Library = {
+  list: api.references,
+  upload: api.uploadReference,
+  accept: "image/png,image/jpeg,image/webp",
+  hint: "PNG, JPEG, WebP",
+  imported: "Image importée",
+  unavailable: "Images indisponibles",
+};
+
+interface PickerProps {
   value: string;
-  onPick: (avatar: AvatarAsset) => void;
+  onPick: (asset: AvatarAsset) => void;
   suggestedName: string;
-}) {
-  const [avatars, setAvatars] = useState<AvatarAsset[] | null>(null);
+}
+
+export const AvatarPicker = (props: PickerProps) => <MediaPicker library={AVATARS} {...props} />;
+
+/** Les images de `references/` : un personnage s'y retrouve d'un épisode à l'autre. */
+export const ReferencePicker = (props: PickerProps) => <MediaPicker library={REFERENCES} {...props} />;
+
+function MediaPicker({ library, value, onPick, suggestedName }: PickerProps & { library: Library }) {
+  const [items, setItems] = useState<AvatarAsset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [over, setOver] = useState(false);
@@ -24,9 +55,9 @@ export function AvatarPicker({
   const toast = useToast();
 
   const load = () =>
-    api
-      .avatars()
-      .then(setAvatars)
+    library
+      .list()
+      .then(setItems)
       .catch((err) => setError(err instanceof ApiError ? err.message : String(err)));
   useEffect(() => {
     load();
@@ -36,10 +67,10 @@ export function AvatarPicker({
     if (!file) return;
     setUploading(true);
     try {
-      const avatar = await api.uploadAvatar(file, suggestedName || file.name.replace(/\.[^.]+$/, ""));
-      setAvatars((current) => [avatar, ...(current ?? [])]);
-      onPick(avatar);
-      toast("ok", "Avatar importé", avatar.uri.replace(/^s3:\/\/[^/]+\//, ""));
+      const item = await library.upload(file, suggestedName || file.name.replace(/\.[^.]+$/, ""));
+      setItems((current) => [item, ...(current ?? [])]);
+      onPick(item);
+      toast("ok", library.imported, item.uri.replace(/^s3:\/\/[^/]+\//, ""));
     } catch (err) {
       toast("error", "Import impossible", err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -47,7 +78,7 @@ export function AvatarPicker({
     }
   };
 
-  if (error) return <Notice tone="warn">Avatars indisponibles : {error}</Notice>;
+  if (error) return <Notice tone="warn">{library.unavailable} : {error}</Notice>;
   return (
     <div className="asset-grid">
       <button
@@ -67,41 +98,94 @@ export function AvatarPicker({
       >
         {uploading ? <Spinner size={20} /> : <Icon name="upload" size={20} />}
         <span>{uploading ? "Import…" : "Importer"}</span>
-        <span className="faint" style={{ fontSize: 11 }}>image ou vidéo</span>
+        <span className="faint" style={{ fontSize: 11 }}>{library.hint}</span>
       </button>
       <input
         ref={input}
         type="file"
         hidden
-        accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
+        accept={library.accept}
         onChange={(e) => {
           upload(e.target.files?.[0]);
           e.target.value = "";
         }}
       />
-      {!avatars &&
+      {!items &&
         Array.from({ length: 5 }, (_, i) => <div key={i} className="skeleton" style={{ aspectRatio: "9 / 14" }} />)}
-      {avatars?.map((avatar) => (
+      {items?.map((item) => (
         <button
-          key={avatar.uri}
+          key={item.uri}
           type="button"
-          className={`asset${avatar.uri === value ? " selected" : ""}`}
-          onClick={() => onPick(avatar)}
-          title={avatar.uri}
+          className={`asset${item.uri === value ? " selected" : ""}`}
+          onClick={() => onPick(item)}
+          title={item.uri}
         >
-          {avatar.kind === "video" ? (
-            <video src={`${avatar.url}#t=0.5`} muted playsInline preload="metadata" />
+          {item.kind === "video" ? (
+            <video src={`${item.url}#t=0.5`} muted playsInline preload="metadata" />
           ) : (
-            <img src={avatar.url} alt="" loading="lazy" />
+            <img src={item.url} alt="" loading="lazy" />
           )}
-          <span className="asset-name truncate">{avatar.name}</span>
-          {avatar.uri === value && (
+          <span className="asset-name truncate">{item.name}</span>
+          {item.uri === value && (
             <span className="asset-check">
               <Icon name="check" size={12} />
             </span>
           )}
         </button>
       ))}
+    </div>
+  );
+}
+
+let referenceList: Promise<AvatarAsset[]> | null = null;
+
+/** La valeur d'un paramètre image : la vignette choisie, et la bibliothèque pour en changer. */
+export function ImageValueInput({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [known, setKnown] = useState<Record<string, string>>({});
+  const [url, setUrl] = useState<string | null>(null);
+
+  // Une valeur reçue toute faite (défaut, « Relancer… ») : son lien signé vient du listing.
+  useEffect(() => {
+    if (!value) return setUrl(null);
+    if (known[value]) return setUrl(known[value]);
+    referenceList ??= api.references().catch(() => []);
+    let cancelled = false;
+    referenceList.then((list) => !cancelled && setUrl(list.find((image) => image.uri === value)?.url ?? null));
+    return () => {
+      cancelled = true;
+    };
+  }, [value, known]);
+
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <div className="row">
+        <Media url={url} kind="image" />
+        <span className={`grow truncate small${value ? " mono" : " faint"}`} title={value || undefined}>
+          {value ? value.split("/").pop() : "Aucune image"}
+        </span>
+        <button type="button" className="btn sm" onClick={() => setOpen(!open)}>
+          <Icon name={open ? "x" : "upload"} size={13} />
+          {open ? "Fermer" : value ? "Changer" : "Choisir"}
+        </button>
+        {value && (
+          <button type="button" className="btn ghost sm icon" onClick={() => onChange("")} aria-label="Retirer l'image">
+            <Icon name="trash" size={13} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <ReferencePicker
+          value={value}
+          suggestedName=""
+          onPick={(image) => {
+            setKnown((current) => ({ ...current, [image.uri]: image.url }));
+            referenceList = null;
+            onChange(image.uri);
+            setOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

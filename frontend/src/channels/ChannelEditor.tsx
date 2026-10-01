@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, api, toIssues, type AvatarAsset, type Channel, type ChannelData, type Issue, type Json } from "../api";
-import { PARAM_NAME, clone, renameToken, same, setIn, type Path } from "../lib/data";
+import { PARAM_NAME, clone, renameToken, same, setIn, soleToken, type Path } from "../lib/data";
 import { LANGUAGE_FR, ago, flag } from "../lib/format";
 import { useStudio } from "../studio";
 import { Icon, Spinner, type IconName } from "../ui/Icon";
-import { Field, Media, Notice, StatusBadge, issueFor, mediaKind } from "../ui/kit";
+import { Field, Media, Notice, Segmented, StatusBadge, issueFor, mediaKind } from "../ui/kit";
 import { useToast } from "../ui/overlay";
 import { AdvancedSettings } from "./Advanced";
 import { AvatarPicker, VoicePicker } from "./Assets";
@@ -98,7 +98,17 @@ export function ChannelEditor({
   }, []);
   const setAgent = (path: Path, value: unknown) => set(["agent_config", ...path], value);
   const declared = draft.parameters.map((parameter) => parameter.name).filter((name) => PARAM_NAME.test(name));
-  const templates = [agent.brief.prompt, agent.brief.mood, ...agent.publication.must_include];
+  const templates = [
+    agent.brief.prompt,
+    agent.brief.mood,
+    ...agent.publication.must_include,
+    agent.avatar.avatar_url,
+    agent.avatar.name,
+    agent.avatar.description,
+    agent.avatar.appearance,
+  ];
+  const imageParams = draft.parameters.filter((p) => p.type === "image" && PARAM_NAME.test(p.name)).map((p) => p.name);
+  const avatarParam = soleToken(agent.avatar.avatar_url);
   const error = (key: string) => issueFor(issues, key);
   const warning = (key: string) => issueFor(warnings, key);
 
@@ -106,15 +116,35 @@ export function ChannelEditor({
     if (!PARAM_NAME.test(old) || !PARAM_NAME.test(next) || old === next || declared.includes(next)) return;
     setDraft((current) => {
       const a = current.agent_config;
+      const swap = (text: string) => renameToken(text, old, next);
       return {
         ...current,
         agent_config: {
           ...a,
-          brief: { prompt: renameToken(a.brief.prompt, old, next), mood: renameToken(a.brief.mood, old, next) },
-          publication: { ...a.publication, must_include: a.publication.must_include.map((item) => renameToken(item, old, next)) },
+          brief: { prompt: swap(a.brief.prompt), mood: swap(a.brief.mood) },
+          publication: { ...a.publication, must_include: a.publication.must_include.map(swap) },
+          avatar: {
+            ...a.avatar,
+            avatar_url: swap(a.avatar.avatar_url),
+            name: swap(a.avatar.name),
+            description: swap(a.avatar.description),
+            appearance: swap(a.avatar.appearance),
+          },
         },
       };
     });
+  };
+
+  // L'avatar fourni par le run : un paramètre image, cité seul dans `avatar_url`.
+  const avatarFromRun = () => {
+    if (imageParams.length) return setAgent(["avatar", "avatar_url"], `\${${imageParams[0]}}`);
+    let name = "personnage";
+    for (let n = 2; draft.parameters.some((p) => p.name === name); n++) name = `personnage_${n}`;
+    set(["parameters"], [
+      ...draft.parameters,
+      { name, type: "image", default: "", required: true, description: "L'image de l'avatar pour ce run : le personnage à l'écran." },
+    ]);
+    setAgent(["avatar", "avatar_url"], `\${${name}}`);
   };
 
   const save = useCallback(async () => {
@@ -407,24 +437,67 @@ export function ChannelEditor({
             <div className="avatar-grid">
               <div className="stack" style={{ gap: 8 }}>
                 <AvatarPreview uri={agent.avatar.avatar_url} kind={avatarKind} at={agent.avatar.reference_frame_s} known={picked} />
-                {agent.avatar.avatar_url && (
-                  <code className="small muted" style={{ overflowWrap: "anywhere" }}>
-                    {agent.avatar.avatar_url.replace(/^s3:\/\/[^/]+\//, "")}
-                  </code>
+                {avatarParam !== null ? (
+                  <span className="small muted">
+                    Choisie au lancement, par <code>${"{"}{avatarParam}{"}"}</code>.
+                  </span>
+                ) : (
+                  agent.avatar.avatar_url && (
+                    <code className="small muted" style={{ overflowWrap: "anywhere" }}>
+                      {agent.avatar.avatar_url.replace(/^s3:\/\/[^/]+\//, "")}
+                    </code>
+                  )
                 )}
               </div>
               <div className="stack">
-                <Field error={error("agent_config.avatar.avatar_url")} warning={warning("agent_config.avatar.avatar_url")}>
-                  <AvatarPicker
-                    value={agent.avatar.avatar_url}
-                    suggestedName={agent.avatar.name}
-                    onPick={(avatar) => {
-                      setPicked((current) => ({ ...current, [avatar.uri]: avatar.url }));
-                      setAgent(["avatar", "avatar_url"], avatar.uri);
-                      if (!agent.avatar.name) setAgent(["avatar", "name"], avatar.name);
-                    }}
-                  />
-                </Field>
+                <Segmented<"fixed" | "run">
+                  value={avatarParam !== null ? "run" : "fixed"}
+                  onChange={(mode) => (mode === "run" ? avatarFromRun() : setAgent(["avatar", "avatar_url"], ""))}
+                  options={[
+                    { value: "fixed", label: "Image fixe" },
+                    { value: "run", label: "Choisie à chaque run" },
+                  ]}
+                />
+                {avatarParam !== null ? (
+                  <Field
+                    label="Paramètre qui fournit l'image"
+                    error={error("agent_config.avatar.avatar_url")}
+                    help="Le formulaire de lancement la demande : le personnage change d'un run à l'autre, le channel reste le même."
+                  >
+                    <select
+                      className="input mono"
+                      value={avatarParam}
+                      onChange={(e) => setAgent(["avatar", "avatar_url"], `\${${e.target.value}}`)}
+                    >
+                      {imageParams.map((name) => (
+                        <option key={name} value={name}>
+                          ${"{"}
+                          {name}
+                          {"}"}
+                        </option>
+                      ))}
+                      {!imageParams.includes(avatarParam) && (
+                        <option value={avatarParam}>
+                          ${"{"}
+                          {avatarParam}
+                          {"}"} — pas un paramètre image
+                        </option>
+                      )}
+                    </select>
+                  </Field>
+                ) : (
+                  <Field error={error("agent_config.avatar.avatar_url")} warning={warning("agent_config.avatar.avatar_url")}>
+                    <AvatarPicker
+                      value={agent.avatar.avatar_url}
+                      suggestedName={agent.avatar.name}
+                      onPick={(avatar) => {
+                        setPicked((current) => ({ ...current, [avatar.uri]: avatar.url }));
+                        setAgent(["avatar", "avatar_url"], avatar.uri);
+                        if (!agent.avatar.name) setAgent(["avatar", "name"], avatar.name);
+                      }}
+                    />
+                  </Field>
+                )}
                 <div className="grid-2">
                   <Field label="Nom de l'avatar">
                     <input className="input" value={agent.avatar.name} placeholder="Nova" onChange={(e) => setAgent(["avatar", "name"], e.target.value)} />
@@ -462,7 +535,13 @@ export function ChannelEditor({
                     label="Apparence (en anglais)"
                     className="wide"
                     warning={warning("agent_config.avatar.appearance")}
-                    help="Préfixée à chaque plan : c'est elle qui empêche la tenue et la coupe de dériver."
+                    help={
+                      avatarParam !== null ? (
+                        <>Le personnage change à chaque run : décris-le avec un paramètre texte, en anglais (ex. <code>${"{apparence}"}</code>).</>
+                      ) : (
+                        "Préfixée à chaque plan : c'est elle qui empêche la tenue et la coupe de dériver."
+                      )
+                    }
                   >
                     <textarea
                       className="input"

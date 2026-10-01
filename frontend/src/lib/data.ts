@@ -29,6 +29,11 @@ export const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 export const PARAM_NAME = /^[a-z][a-z0-9_]{0,39}$/;
 export const TOKEN = /\$\{([^{}]*)\}?/g;
 
+/** Le paramètre cité seul dans `text` (`${personnage}`), ou null : l'avatar fourni par un run. */
+export function soleToken(text: string): string | null {
+  return /^\$\{([a-z][a-z0-9_]{0,39})\}$/.exec(text.trim())?.[1] ?? null;
+}
+
 /** Combien de fois `${name}` est cité dans les champs gabarits. */
 export function countUses(texts: string[], name: string): number {
   const needle = `\${${name}}`;

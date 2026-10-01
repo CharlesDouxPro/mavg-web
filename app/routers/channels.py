@@ -186,12 +186,15 @@ def launch_run(channel_id: str, body: LaunchRequest, channels: Channels, tasks: 
     avatar = channel.agent_config.avatar
     if not avatar.avatar_url:
         errors.append(issue(("channel", "agent_config", "avatar", "avatar_url"), "Ce channel n'a pas d'avatar : choisis-en un dans l'éditeur.", ""))
-    if storage is not None:
-        for field in ("avatar_url", "voice_url"):
-            key = bucket_key(getattr(avatar, field))
-            if key and not storage.exists(key):
-                errors.append(issue(("channel", "agent_config", "avatar", field), f"{getattr(avatar, field)} est introuvable dans le bucket.", getattr(avatar, field)))
     values, value_issues = resolve_values(channel, body.values)
+    if storage is not None:
+        # L'avatar fourni par un paramètre (`${personnage}`) se vérifie avec les autres images du run.
+        assets = [(("channel", "agent_config", "avatar", field), getattr(avatar, field)) for field in ("avatar_url", "voice_url")]
+        assets += [(("values", p.name), values[p.name]) for p in channel.parameters if p.type == "image" and p.name in values]
+        for loc, uri in assets:
+            key = bucket_key(uri)
+            if key and not storage.exists(key):
+                errors.append(issue(loc, f"{uri} est introuvable dans le bucket.", uri))
     raise_if(errors + value_issues)
 
     for _ in range(3):

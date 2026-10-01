@@ -1,18 +1,31 @@
-"""Les assets du bucket : avatars (liste et import) et catalogue de voix (liste et écoute)."""
+"""Les assets du bucket : avatars et images de référence (liste et import), catalogue de
+voix (liste et écoute)."""
 
 from pathlib import PurePosixPath
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.channels import bucket_key
 from app.deps import BucketStorage
-from app.storage import AVATAR_PREFIX, IMAGE_TYPES, VIDEO_TYPES, VOICE_KEY, avatars, slug, voices
+from app.storage import (
+    AVATAR_PREFIX,
+    IMAGE_TYPES,
+    REFERENCE_PREFIX,
+    VIDEO_TYPES,
+    VOICE_KEY,
+    avatars,
+    bucket_key,
+    references,
+    slug,
+    voices,
+)
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
 MAX_UPLOAD = 200 * 1024 * 1024
 """Une vidéo d'avatar de quelques secondes pèse bien moins ; au-delà, c'est une erreur."""
+MAX_REFERENCE = 30 * 1024 * 1024
+"""Une image générée pèse quelques Mo : au-delà, ce n'est pas une image de référence."""
 
 
 @router.get("/avatars")
@@ -37,6 +50,32 @@ def upload_avatar(
     key = storage.free_key(AVATAR_PREFIX, stem, suffix)
     storage.upload(file.file, key, kinds[suffix])
     return next(avatar for avatar in avatars(storage) if avatar["uri"] == storage.uri(key))
+
+
+@router.get("/references")
+def list_references(storage: BucketStorage) -> list[dict]:
+    return references(storage)
+
+
+@router.post("/references", status_code=201)
+def upload_reference(
+    storage: BucketStorage,
+    file: Annotated[UploadFile, File()],
+    name: Annotated[str, Form()] = "",
+) -> dict:
+    """Importe une image sous `references/` : le personnage, l'objet ou le décor d'un run.
+
+    Une image seulement : le moteur la reçoit telle quelle, sans frame à extraire.
+    """
+    suffix = PurePosixPath(file.filename or "").suffix.lower()
+    if suffix not in IMAGE_TYPES:
+        raise HTTPException(422, f"Une image est attendue : {', '.join(sorted(IMAGE_TYPES))}.")
+    if file.size is not None and file.size > MAX_REFERENCE:
+        raise HTTPException(413, f"Image trop lourde : {MAX_REFERENCE // (1024 * 1024)} Mo au plus.")
+    stem = slug(name or PurePosixPath(file.filename or "").stem) or "reference"
+    key = storage.free_key(REFERENCE_PREFIX, stem, suffix)
+    storage.upload(file.file, key, IMAGE_TYPES[suffix])
+    return next(image for image in references(storage) if image["uri"] == storage.uri(key))
 
 
 @router.get("/voices")

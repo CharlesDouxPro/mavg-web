@@ -3,13 +3,17 @@
 La tâche est un instantané complet : modifier le channel ensuite ne la change pas. Les
 secrets n'y figurent que sous forme de référence (`${FOUNDRY_API_KEY}`), résolue par le
 worker ; l'adresse de chaque fournisseur vient du registre partagé, jamais du channel.
+
+Les paramètres `image` ne vont pas dans `params` : ils deviennent l'image de l'avatar
+(`avatar_url` = `${nom}`) ou une référence de plus (`agent_config.references`), que le
+worker envoie au moteur avec chaque plan.
 """
 
 import secrets
 from datetime import datetime
 from typing import Any
 
-from app.channels import Channel, ChannelIn, ModelChoice
+from app.channels import Channel, ChannelIn, ModelChoice, avatar_parameter
 from app.issues import issue
 from app.params import as_text, coerce, is_empty, render
 from app.task_config import (
@@ -20,10 +24,12 @@ from app.task_config import (
     Brief,
     ModelConfig,
     ModelConfigs,
+    ReferenceImage,
     ScraperConfig,
     StorageConfig,
     TaskConfig,
     check_secret_destinations,
+    reference_number,
 )
 
 
@@ -31,10 +37,11 @@ def resolve_values(channel: ChannelIn, submitted: dict[str, Any]) -> tuple[dict[
     """Les valeurs du run, typées puis écrites en texte, et les erreurs par paramètre.
 
     Absente ou nulle, une valeur prend le défaut du channel. Vide, un paramètre facultatif
-    est simplement omis.
+    est simplement omis — sauf celui qui fournit l'avatar : sans lui, pas de vidéo.
     """
     issues: list[dict] = []
     declared = {parameter.name: parameter for parameter in channel.parameters}
+    bound = avatar_parameter(channel)
     for name, raw in submitted.items():
         if name not in declared:
             issues.append(issue(("values", name), f"{name} n'est pas un paramètre de ce channel.", raw))
@@ -46,7 +53,9 @@ def resolve_values(channel: ChannelIn, submitted: dict[str, Any]) -> tuple[dict[
             raw = parameter.default
         loc = ("values", name)
         if is_empty(raw):
-            if parameter.required:
+            if name == bound:
+                issues.append(issue(loc, "Paramètre requis : c'est l'image de l'avatar.", raw))
+            elif parameter.required:
                 issues.append(issue(loc, "Paramètre requis.", raw))
             continue
         if isinstance(raw, str) and "${" in raw:
@@ -69,15 +78,40 @@ def _model(choice: ModelChoice) -> ModelConfig:
     )
 
 
+def references(channel: ChannelIn, values: dict[str, str]) -> list[ReferenceImage]:
+    """Les images du run hors avatar, dans l'ordre des paramètres : leur ordre fixe leur label."""
+    bound = avatar_parameter(channel)
+    return [
+        ReferenceImage(name=parameter.name, image_url=values[parameter.name], description=parameter.description)
+        for parameter in channel.parameters
+        if parameter.type == "image" and parameter.name != bound and parameter.name in values
+    ]
+
+
 def build_agent(channel: ChannelIn, values: dict[str, str], keep_missing: bool = False) -> AgentConfig:
     agent = channel.agent_config
+    images = {parameter.name for parameter in channel.parameters if parameter.type == "image"}
+    texts = {name: value for name, value in values.items() if name not in images}
+    extra = references(channel, values)
+    # Une image se cite par son label : c'est ainsi que l'agent désigne le sujet dans ses plans.
+    labels = {reference.name: f"<Subject {reference_number(i)}>" for i, reference in enumerate(extra)}
+    if bound := avatar_parameter(channel):
+        labels[bound] = "<Subject 1>"
 
     def fill(text: str) -> str:
-        return render(text, values, keep_missing)
+        return render(text, {**texts, **labels}, keep_missing)
 
+    avatar = agent.avatar.model_copy(
+        update={
+            "avatar_url": render(agent.avatar.avatar_url.strip(), values, keep_missing),
+            "name": fill(agent.avatar.name),
+            "description": fill(agent.avatar.description),
+            "appearance": fill(agent.avatar.appearance),
+        }
+    )
     must_include = [text for item in agent.publication.must_include if (text := fill(item).strip())]
     return AgentConfig(
-        params=dict(values),
+        params=texts,
         models=ModelConfigs(
             master_mind=_model(agent.models.master_mind),
             slm=_model(agent.models.slm),
@@ -87,7 +121,8 @@ def build_agent(channel: ChannelIn, values: dict[str, str], keep_missing: bool =
         skill=agent.skill,
         language=agent.language,
         brief=Brief(prompt=fill(agent.brief.prompt), mood=fill(agent.brief.mood)),
-        avatar=agent.avatar,
+        avatar=avatar,
+        references=extra,
         llm=agent.llm,
         render=agent.render,
         plan=agent.plan,

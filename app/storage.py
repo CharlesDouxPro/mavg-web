@@ -2,7 +2,8 @@
 
 Le bucket est privé : le navigateur n'y lit qu'au travers de liens signés, valables une
 heure, servis en lecture (`inline`) pour que `<video>` et `<audio>` les jouent. L'écriture
-se limite à l'import d'avatars, sous `avatars/`.
+se limite aux imports : les avatars sous `avatars/`, les images de référence des runs sous
+`references/`.
 """
 
 import json
@@ -19,14 +20,24 @@ from botocore.exceptions import ClientError
 
 from app.task_config import StorageConfig
 
+BUCKET = StorageConfig().bucket
 AVATAR_PREFIX = "avatars/"
 VOICE_PREFIX = "voices/"
+REFERENCE_PREFIX = "references/"
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 VIDEO_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 MEDIA_TYPES = {**IMAGE_TYPES, **VIDEO_TYPES, ".wav": "audio/wav", ".mp3": "audio/mpeg"}
 LINK_TTL_S = 3600
 LIST_TTL_S = 300
 VOICE_KEY = re.compile(r"voices/([a-z]{2})/(\w+)/([\w-]+)/([^/]+)\.wav")
+
+
+def bucket_key(uri: str) -> str | None:
+    """La clé d'un objet du bucket des avatars, ou None si `uri` pointe ailleurs."""
+    prefix = f"s3://{BUCKET}/"
+    if not uri.startswith(prefix) or len(uri) == len(prefix) or ".." in uri:
+        return None
+    return uri[len(prefix) :]
 
 
 def content_type(key: str) -> str | None:
@@ -145,6 +156,21 @@ def avatars(storage: Storage) -> list[dict]:
             "size": item.size,
         }
         for item in sorted(unique, key=lambda item: item.modified, reverse=True)
+    ]
+
+
+def references(storage: Storage) -> list[dict]:
+    """Les images de référence déjà importées : un personnage resservi d'un épisode à l'autre."""
+    items = [item for item in storage.list(REFERENCE_PREFIX) if PurePosixPath(item.key).suffix.lower() in IMAGE_TYPES]
+    return [
+        {
+            "uri": storage.uri(item.key),
+            "name": PurePosixPath(item.key).stem,
+            "kind": "image",
+            "url": storage.link(item.key),
+            "size": item.size,
+        }
+        for item in sorted(items, key=lambda item: item.modified, reverse=True)
     ]
 
 

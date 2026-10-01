@@ -2,7 +2,7 @@
 
 export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 export type Status = "pending" | "working" | "failed" | "done";
-export type ParamType = "string" | "text" | "url" | "number" | "boolean";
+export type ParamType = "string" | "text" | "url" | "number" | "boolean" | "image";
 
 export interface ChannelParameter {
   name: string;
@@ -112,6 +112,7 @@ export interface RunDetail extends RunSummary {
   language: string;
   brief: { prompt?: string; mood?: string };
   avatar: Partial<Avatar>;
+  references: RunReference[];
   user_message: string | null;
   result: { title?: string; description?: string; hashtags?: string[]; video_uri?: string };
   error: string | null;
@@ -129,12 +130,22 @@ export interface Preview {
   issues: RawIssue[];
 }
 
+/** Une image ou une vidéo du bucket : un avatar, ou une image de référence (`references/`). */
 export interface AvatarAsset {
   uri: string;
   name: string;
   kind: "image" | "video";
   url: string;
   size: number;
+}
+
+/** Une image envoyée au moteur avec chaque plan, en plus de l'avatar (`<Subject 1>`). */
+export interface RunReference {
+  name: string;
+  image_url: string;
+  description: string;
+  label: string;
+  url: string | null;
 }
 
 export interface VoiceAsset {
@@ -261,6 +272,13 @@ export const api = {
     form.append("file", file);
     form.append("name", name);
     return request<AvatarAsset>("/api/assets/avatars", { method: "POST", body: form });
+  },
+  references: () => request<AvatarAsset[]>("/api/assets/references"),
+  uploadReference: (file: File, name: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("name", name);
+    return request<AvatarAsset>("/api/assets/references", { method: "POST", body: form });
   },
   voices: () => request<VoiceAsset[]>("/api/assets/voices"),
   voiceInfo: (uri: string) => request<VoiceInfo>(`/api/assets/voices/info?uri=${encodeURIComponent(uri)}`),

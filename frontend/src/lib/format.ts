@@ -19,6 +19,9 @@ export function ago(iso: string | null | undefined): string {
 
 export const fullDate = (iso: string | null | undefined) => (iso ? full.format(new Date(iso)) : "—");
 
+/** Une valeur de run lisible : une image du bucket se lit à son nom de fichier. */
+export const shortValue = (value: string) => (value.startsWith("s3://") ? value.split("/").pop() ?? value : value);
+
 export function duration(from: string | null | undefined, to?: string | null): string {
   if (!from) return "";
   const seconds = Math.max(0, ((to ? new Date(to) : new Date()).getTime() - new Date(from).getTime()) / 1000);

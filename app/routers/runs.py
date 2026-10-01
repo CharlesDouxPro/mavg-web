@@ -8,10 +8,9 @@ from typing import Any
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, HTTPException, Query, Response
 
-from app.channels import bucket_key
 from app.deps import BucketStorage, MaybeStorage, Tasks
-from app.storage import AVATAR_PREFIX, VOICE_PREFIX, slug
-from app.task_config import AgentConfig
+from app.storage import AVATAR_PREFIX, VOICE_PREFIX, bucket_key, slug
+from app.task_config import AgentConfig, reference_number
 
 router = APIRouter(prefix="/api", tags=["runs"])
 
@@ -124,6 +123,10 @@ def get_run(task_id: str, tasks: Tasks, storage: MaybeStorage) -> dict:
         video_url=None,
         download_url=None,
         avatar_url=None,
+        references=[
+            {**reference, "label": f"<Subject {reference_number(position)}>", "url": None}
+            for position, reference in enumerate(agent.get("references") or [])
+        ],
     )
     if storage is not None:
         if key := bucket_key(result.get("video_uri") or ""):
@@ -131,6 +134,9 @@ def get_run(task_id: str, tasks: Tasks, storage: MaybeStorage) -> dict:
             run["download_url"] = storage.link(key, filename=f"{slug(result.get('title') or task_id) or 'video'}.mp4")
         if key := bucket_key((agent.get("avatar") or {}).get("avatar_url") or ""):
             run["avatar_url"] = storage.link(key)
+        for reference in run["references"]:
+            if key := bucket_key(reference.get("image_url") or ""):
+                reference["url"] = storage.link(key)
     return run
 
 

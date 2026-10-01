@@ -3,11 +3,11 @@
 import { useState, type ReactNode } from "react";
 import { api, type RunDetail, type RunSummary, type Status } from "../api";
 import { usePolling } from "../lib/hooks";
-import { STATUS_LABEL, ago, copy, duration, fullDate } from "../lib/format";
+import { STATUS_LABEL, ago, copy, duration, fullDate, shortValue } from "../lib/format";
 import { go } from "../lib/router";
 import { useStudio } from "../studio";
 import { Icon, Spinner, type IconName } from "../ui/Icon";
-import { Empty, Notice, Segmented, StatusBadge, Steps, stageLabel } from "../ui/kit";
+import { Empty, Media, Notice, Segmented, StatusBadge, Steps, mediaKind, stageLabel } from "../ui/kit";
 import { Drawer, useToast } from "../ui/overlay";
 
 type Filter = "all" | Status;
@@ -120,7 +120,7 @@ function RunRow({ run, active }: { run: RunSummary; active: boolean }) {
           <span className="mono">{run.channel_name}</span>
           {params.slice(0, 2).map(([name, value]) => (
             <span key={name} className="chip static truncate" style={{ maxWidth: 240, height: 22 }}>
-              <span className="faint mono">{name}</span> {value}
+              <span className="faint mono">{name}</span> {shortValue(value)}
             </span>
           ))}
           {params.length > 2 && <span className="faint">+{params.length - 2}</span>}
@@ -222,6 +222,8 @@ function RunDrawer({ taskId, onChange }: { taskId?: string; onChange: () => void
 function RunBody({ run }: { run: RunDetail }) {
   const toast = useToast();
   const publication = run.result;
+  // L'avatar a pu venir d'un paramètre image du run : il est alors une référence comme les autres.
+  const avatarFromRun = !!run.avatar?.avatar_url && Object.values(run.run_params).includes(run.avatar.avatar_url);
   return (
     <>
       {run.video_url && (
@@ -281,9 +283,35 @@ function RunBody({ run }: { run: RunDetail }) {
           <h4 className="section-title">Paramètres du run</h4>
           <dl className="kv">
             {Object.entries(run.run_params).map(([name, value]) => (
-              <Pair key={name} label={<code>{name}</code>}>{value}</Pair>
+              <Pair key={name} label={<code>{name}</code>}>{shortValue(value)}</Pair>
             ))}
           </dl>
+        </div>
+      )}
+
+      {(run.references.length > 0 || avatarFromRun) && (
+        <div>
+          <h4 className="section-title">Références visuelles</h4>
+          <p className="field-help" style={{ margin: "0 0 10px" }}>Envoyées au moteur avec chaque plan, dans cet ordre.</p>
+          <div className="stack" style={{ gap: 10 }}>
+            <Reference
+              url={run.avatar_url}
+              kind={mediaKind(run.avatar?.avatar_url ?? "")}
+              label="<Subject 1>"
+              name={run.avatar?.name || "Avatar"}
+              detail={avatarFromRun ? "l'avatar, choisi pour ce run" : "l'avatar"}
+            />
+            {run.references.map((reference) => (
+              <Reference
+                key={reference.name}
+                url={reference.url}
+                kind="image"
+                label={reference.label}
+                name={reference.name}
+                detail={reference.description}
+              />
+            ))}
+          </div>
         </div>
       )}
 
@@ -313,6 +341,20 @@ function RunBody({ run }: { run: RunDetail }) {
         </details>
       )}
     </>
+  );
+}
+
+function Reference({ url, kind, label, name, detail }: { url: string | null; kind: "image" | "video"; label: string; name: string; detail: string }) {
+  return (
+    <div className="row" style={{ gap: 12 }}>
+      <Media url={url} kind={kind} className="thumb m" />
+      <span style={{ minWidth: 0 }}>
+        <div className="truncate">
+          <code>{label}</code> <strong>{name}</strong>
+        </div>
+        {detail && <div className="muted small truncate">{detail}</div>}
+      </span>
+    </div>
   );
 }
 

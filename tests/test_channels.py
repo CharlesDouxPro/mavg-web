@@ -71,7 +71,7 @@ def test_unused_parameter_is_only_a_warning(client, channel):
         (lambda c: c["agent_config"]["brief"].update(prompt="Parle de ${inconnu}"), "agent_config.brief.prompt", "pas déclaré"),
         (lambda c: c["agent_config"]["brief"].update(prompt="Parle de ${Source}"), "agent_config.brief.prompt", "minuscules"),
         (lambda c: c["agent_config"]["brief"].update(prompt="Parle de ${source_url"), "agent_config.brief.prompt", "${nom}"),
-        (lambda c: c["agent_config"]["avatar"].update(description="${source_url}"), "agent_config.avatar.description", "n'est remplacé que"),
+        (lambda c: c.update(description="${source_url}"), "description", "n'est remplacé que"),
         (lambda c: c["channel_config"].update(email="pas-un-email"), "channel_config.email", "e-mail"),
         (lambda c: c.update(id="Pas Un Slug"), "id", "minuscules"),
         (lambda c: c["parameters"].append({"name": "Mauvais-Nom"}), "parameters.3.name", "Minuscules"),

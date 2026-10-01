@@ -17,7 +17,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.issues import Loc, issue, strings
-from app.params import PARAM_NAME, ParamType, coerce, is_empty, scan
+from app.params import PARAM_NAME, TOKEN, ParamType, coerce, is_empty, scan
+from app.storage import BUCKET, bucket_key
 from app.task_config import (
     LANGUAGE_NAMES,
     PROVIDERS,
@@ -28,7 +29,6 @@ from app.task_config import (
     PlanConstraints,
     PublicationConstraints,
     RenderSettings,
-    StorageConfig,
     SubtitleSettings,
 )
 
@@ -36,14 +36,22 @@ SLUG = re.compile(r"[a-z0-9][a-z0-9-]{1,39}")
 """L'identifiant du channel : il préfixe le `task_id` de ses runs, qui devient un dossier."""
 
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-BUCKET = StorageConfig().bucket
 
+AVATAR_URL: Loc = ("agent_config", "avatar", "avatar_url")
 TEMPLATED: tuple[Loc, ...] = (
     ("agent_config", "brief", "prompt"),
     ("agent_config", "brief", "mood"),
     ("agent_config", "publication", "must_include"),
+    AVATAR_URL,
+    ("agent_config", "avatar", "name"),
+    ("agent_config", "avatar", "description"),
+    ("agent_config", "avatar", "appearance"),
 )
 """Les seuls champs où `${nom}` est remplacé par la valeur du run."""
+
+IMAGE_CITABLE: tuple[Loc, ...] = (("agent_config", "brief", "prompt"), ("agent_config", "brief", "mood"))
+"""Où une image se cite par son label (`<Subject 2>`). Ailleurs, seule l'image de
+l'avatar en accepte une, citée seule : `${personnage}`."""
 
 
 class ChannelParameter(BaseModel):
@@ -161,7 +169,7 @@ def validate_channel(channel: ChannelIn) -> tuple[list[dict], list[dict]]:
         in_template = loc[:3] in templated or loc in templated
         if not in_template:
             if "${" in text:
-                errors.append(issue(loc, "${…} n'est remplacé que dans le brief, le mood et les mentions obligatoires.", text))
+                errors.append(issue(loc, "${…} n'est remplacé que dans le brief, le mood, les mentions obligatoires et l'avatar.", text))
             continue
         names, malformed = scan(text)
         for fragment in malformed:
@@ -170,9 +178,16 @@ def validate_channel(channel: ChannelIn) -> tuple[list[dict], list[dict]]:
             used.add(name)
             if name not in declared:
                 errors.append(issue(loc, f"${{{name}}} n'est pas déclaré : ajoute-le dans Paramètres.", text))
+            elif declared[name].type == "image" and loc[:3] not in IMAGE_CITABLE and loc != AVATAR_URL:
+                errors.append(issue(loc, f"${{{name}}} est une image : elle se cite dans le brief, le mood, ou comme image de l'avatar.", text))
+        if loc == AVATAR_URL and names:
+            bound = avatar_parameter(channel)
+            if bound is None or (bound in declared and declared[bound].type != "image"):
+                errors.append(issue(loc, "L'image de l'avatar vient du bucket, ou d'un paramètre de type image cité seul (ex. ${personnage}).", text))
 
     for index, parameter in enumerate(channel.parameters):
-        if parameter.name in declared and parameter.name not in used:
+        # Une image non citée sert quand même : elle part au moteur comme référence.
+        if parameter.name in declared and parameter.name not in used and parameter.type != "image":
             warnings.append(issue(("parameters", index, "name"), f"{parameter.name} n'est cité nulle part : l'agent le reçoit seulement dans « SUJET PRÉCIS ».", parameter.name))
 
     if agent.language and agent.language not in LANGUAGE_NAMES:
@@ -191,7 +206,7 @@ def validate_channel(channel: ChannelIn) -> tuple[list[dict], list[dict]]:
         if is_empty(uri):
             if required:
                 warnings.append(issue(loc, "Pas encore d'avatar : il en faudra un pour lancer un run.", uri))
-        elif bucket_key(uri) is None:
+        elif "${" not in uri and bucket_key(uri) is None:
             errors.append(issue(loc, f"Choisis un fichier du bucket (s3://{BUCKET}/…) : une adresse extérieure serait téléchargée par la machine GPU.", uri))
     if agent.avatar.avatar_url and not agent.avatar.appearance.strip():
         warnings.append(issue(("agent_config", "avatar", "appearance"), "Sans apparence décrite, rien ne verrouille la tenue d'un plan à l'autre.", ""))
@@ -199,12 +214,14 @@ def validate_channel(channel: ChannelIn) -> tuple[list[dict], list[dict]]:
     return errors, warnings
 
 
-def bucket_key(uri: str) -> str | None:
-    """La clé d'un objet du bucket des avatars, ou None si `uri` pointe ailleurs."""
-    prefix = f"s3://{BUCKET}/"
-    if not uri.startswith(prefix) or len(uri) == len(prefix) or ".." in uri:
-        return None
-    return uri[len(prefix) :]
+def avatar_parameter(channel: ChannelIn) -> str | None:
+    """Le paramètre qui fournit l'image de l'avatar à chaque run (`avatar_url` = `${nom}`).
+
+    Le héros change d'un run à l'autre, le channel reste le même : c'est le run qui
+    apporte son image, et elle devient `<Subject 1>`.
+    """
+    match = TOKEN.fullmatch(channel.agent_config.avatar.avatar_url.strip())
+    return match[1] if match else None
 
 
 def normalized(channel: ChannelIn) -> ChannelIn:

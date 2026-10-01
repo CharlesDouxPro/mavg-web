@@ -5,6 +5,7 @@ import { countUses } from "../lib/data";
 import { useStudio } from "../studio";
 import { Icon } from "../ui/Icon";
 import { Field, Switch, issueFor } from "../ui/kit";
+import { ImageValueInput } from "./Assets";
 import { NumberInput } from "./widgets";
 
 export const PARAM_PRESETS: { label: string; parameter: ChannelParameter }[] = [
@@ -23,6 +24,16 @@ export const PARAM_PRESETS: { label: string; parameter: ChannelParameter }[] = [
     },
   },
   { label: "Idée", parameter: { name: "idee", type: "string", default: "", required: true, description: "Le sujet de la vidéo." } },
+  {
+    label: "Personnage (image)",
+    parameter: {
+      name: "personnage",
+      type: "image",
+      default: "",
+      required: true,
+      description: "Le héros de l'histoire, tel qu'il apparaît dans chaque plan.",
+    },
+  },
 ];
 
 export function ParameterValueInput({
@@ -57,6 +68,7 @@ export function ParameterValueInput({
     return (
       <textarea className="input" rows={3} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     );
+  if (type === "image") return <ImageValueInput value={value} onChange={onChange} />;
   return (
     <input
       className={`input${type === "url" ? " mono" : ""}`}
@@ -158,7 +170,7 @@ export function ParametersEditor({
                 />
                 <span className={`usage ${uses ? "" : "faint"}`}>
                   <Icon name="braces" size={13} />
-                  {uses ? `cité ${uses}×` : "non cité"}
+                  {uses ? `cité ${uses}×` : parameter.type === "image" ? "référence" : "non cité"}
                 </span>
               </div>
             </div>

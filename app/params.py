@@ -3,19 +3,26 @@
 Un paramètre est déclaré sur le channel (nom, type, défaut) et cité dans le brief par
 `${nom}`. Au lancement, la valeur saisie remplace chaque citation, en une seule passe :
 une valeur n'est jamais relue, même si elle contient elle-même `${…}`.
+
+Un paramètre `image` est à part : sa valeur est une image du bucket, envoyée au moteur
+avec chaque plan (`app/render.py`). Dans le brief, il s'écrit par son label, `<Subject 2>`.
 """
 
 import math
 import re
+from pathlib import PurePosixPath
 from typing import Any, Literal
 
-ParamType = Literal["string", "text", "url", "number", "boolean"]
+from app.storage import IMAGE_TYPES, bucket_key
+
+ParamType = Literal["string", "text", "url", "number", "boolean", "image"]
 PARAM_TYPES: dict[str, str] = {
     "string": "Texte court",
     "text": "Texte long",
     "url": "Lien",
     "number": "Nombre",
     "boolean": "Oui / non",
+    "image": "Image",
 }
 
 PARAM_NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
@@ -93,6 +100,12 @@ def coerce(kind: str, raw: Any) -> Any:
         return int(number) if number.is_integer() else number
 
     text = raw if isinstance(raw, str) else str(raw)
+    if kind == "image":
+        text = text.strip()
+        key = bucket_key(text)
+        if key is None or PurePosixPath(key).suffix.lower() not in IMAGE_TYPES:
+            raise ValueError("Attendu : une image du bucket (PNG, JPEG ou WebP), à choisir ou importer.")
+        return text
     if kind == "url":
         text = text.strip()
         if len(text) > MAX_URL or not URL.fullmatch(text):

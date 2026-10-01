@@ -5,6 +5,7 @@ import { ApiError, api, type Channel, type Issue } from "../api";
 import { toData } from "../channels/ChannelEditor";
 import { ParameterValueInput } from "../channels/Parameters";
 import { PromptPreview } from "../channels/PromptPreview";
+import { soleToken } from "../lib/data";
 import { LANGUAGE_FR, flag } from "../lib/format";
 import { go } from "../lib/router";
 import { useStudio, type LaunchRequest } from "../studio";
@@ -199,7 +200,12 @@ export function LaunchDrawer({
                 <Media url={summary?.avatar?.url} kind={summary?.avatar?.kind ?? "image"} className="thumb m" />
                 <dl className="kv grow" style={{ margin: 0 }}>
                   <dt>Avatar</dt>
-                  <dd>{agent.avatar.name || "—"}</dd>
+                  <dd>
+                    {agent.avatar.name || "—"}
+                    {soleToken(agent.avatar.avatar_url) && (
+                      <span className="muted"> · image de <code>{soleToken(agent.avatar.avatar_url)}</code></span>
+                    )}
+                  </dd>
                   <dt>Voix</dt>
                   <dd>{agent.avatar.voice_url ? agent.avatar.voice_url.split("/").pop()?.replace(".wav", "") : "inventée par le modèle"}</dd>
                   <dt>Langue</dt>
