@@ -33,8 +33,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # 3. Les secrets (Mongo, bucket, accès) sont embarqués : l'image suffit à tout lancer, sans
 #    fichier sur le poste. Elle ne doit donc vivre que dans le registre PRIVÉ. Fournis par
 #    `scripts/push.sh` (--secret id=env,src=.env) ; une variable passée au lancement (-e) prime.
+#    Le contenu d'un secret n'entre pas dans la clé de cache de BuildKit : ENV_HASH, l'empreinte
+#    du .env, est dans le nom du fichier copié. Une étape reprise du cache porte donc forcément
+#    ce .env-là (sans quoi le cache a déjà resservi l'ancien .env à l'image arm64).
 FROM --platform=$BUILDPLATFORM node:24-alpine AS secrets
-RUN --mount=type=secret,id=env,required=true cp /run/secrets/env /.env
+ARG ENV_HASH
+RUN --mount=type=secret,id=env,required=true test -n "$ENV_HASH" && cp /run/secrets/env "/env-$ENV_HASH"
 
 # 4. L'image servie : Python slim, sans uv ni Node. Même interpréteur que l'étape 2, au
 #    même chemin : le venv recopié fonctionne tel quel.
@@ -46,7 +50,8 @@ COPY app/ app/
 # dans la chaîne de connexion, relatif à /app.
 COPY certs/ certs/
 COPY --from=front /front/dist frontend/dist
-COPY --from=secrets --chown=10001:10001 --chmod=0400 /.env /app/.env
+ARG ENV_HASH
+COPY --from=secrets --chown=10001:10001 --chmod=0400 /env-${ENV_HASH} /app/.env
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \

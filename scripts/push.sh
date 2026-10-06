@@ -39,8 +39,8 @@ fi
 
 # amd64 pour les serveurs (Serverless Containers, instances), arm64 pour les Mac Apple Silicon :
 # `docker pull` choisit tout seul la bonne. Construit sans émulation (voir le Dockerfile).
-# Le contenu d'un --secret n'entre pas dans la clé de cache de BuildKit : sans --no-cache-filter,
-# l'étape `secrets` resservirait le .env d'un build précédent, même après un changement de secret.
+# ENV_HASH : l'empreinte du .env, pour que le cache reconstruise l'image quand il change (voir
+# le Dockerfile). `git hash-object` sans -w n'écrit rien dans le dépôt.
 docker buildx build --platform linux/amd64,linux/arm64 --secret id=env,src=.env \
-  --no-cache-filter secrets -t "$IMAGE" -t "$LATEST" --push .
+  --build-arg ENV_HASH="$(git hash-object .env)" -t "$IMAGE" -t "$LATEST" --push .
 echo "Poussée : $IMAGE (et latest), pour linux/amd64 et linux/arm64"
