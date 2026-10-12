@@ -53,6 +53,22 @@ l'agent désigne le sujet dans ses plans. L'agent ne voit pas l'image. Il reçoi
 un `<Subject N>` sans image, ou qui ne met jamais en scène une image fournie. Pour un avatar
 fourni par le run, l'apparence peut citer un paramètre texte (`${apparence}`, en anglais).
 
+### Des runs sans image : les personnages inventés
+
+**Personnages inventés** (`plan.max_characters`, Avancé ou mode « Sans avatar ») autorise le
+réalisateur à inventer des personnages, sans aucune image : il écrit la fiche de chacun, le
+worker tourne un plan de casting par personnage et l'image qui en sort le fige pour toute la
+vidéo.
+
+| Le channel… | Au lancement |
+| --- | --- |
+| est « Sans avatar » | aucune image à fournir : le premier personnage inventé est `<Subject 1>`, à l'écran dans chaque plan |
+| prend l'avatar « Choisie à chaque run », paramètre facultatif | l'image peut rester vide : le réalisateur invente alors le personnage principal |
+| a un avatar, et des personnages inventés | l'avatar, plus les personnages secondaires que l'épisode demande |
+
+Sans personnage inventé, un channel sans avatar ne lance rien. L'assistant connaît ces modes :
+il propose le casting plutôt qu'une image par personnage.
+
 ## Démarrer en local
 
 Prérequis : [uv](https://docs.astral.sh/uv/) et Node 22 ou plus.
@@ -84,7 +100,7 @@ uv run python scripts/seed_channels.py
 
 - **Pas de secret dans un channel.** Un channel choisit un fournisseur et un nom de modèle ;
   l'adresse et la clé viennent du registre `PROVIDERS` du worker, sous forme de référence
-  `${FOUNDRY_API_KEY}` résolue sur la machine du worker. Le worker vérifie lui-même qu'une
+  `${LLM_TOKEN}` résolue sur la machine du worker. Le worker vérifie lui-même qu'une
   de ses clés ne part que vers l'adresse de son fournisseur.
 - **`${…}` ne sert qu'aux paramètres**, et seulement dans `brief.prompt`, `brief.mood`,
   `publication.must_include` et l'avatar (`avatar_url`, `name`, `description`,

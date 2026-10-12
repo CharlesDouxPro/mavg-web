@@ -26,8 +26,8 @@ class Settings:
     """Les configs de base, éditées en place depuis l'onglet Channels."""
     assistant_collection: str = "assistant_sessions"
     """Les conversations de l'onglet Assistant : le fil, le brouillon, les cartes."""
-    assistant_model: str = "claude-opus-4-7-1"
-    """Le déploiement Foundry qui fait parler l'assistant."""
+    assistant_model: str = "DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU"
+    """Le LLM qui fait parler l'assistant : celui des channels, sur la machine GPU."""
     static_dir: Path = ROOT / "frontend" / "dist"
     """Le build du front. Absent en dev : Vite le sert lui-même."""
     s3_access_key: str = ""
@@ -45,7 +45,7 @@ class Settings:
             mongo_collection=os.getenv("MONGO_COLLECTION", "tasks"),
             channels_collection=os.getenv("MONGO_CHANNELS_COLLECTION", "channels"),
             assistant_collection=os.getenv("MONGO_ASSISTANT_COLLECTION", "assistant_sessions"),
-            assistant_model=os.getenv("ASSISTANT_MODEL", "claude-opus-4-7-1"),
+            assistant_model=os.getenv("ASSISTANT_MODEL", "DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU"),
             static_dir=Path(os.getenv("STATIC_DIR", ROOT / "frontend" / "dist")),
             s3_access_key=os.getenv("SCW_ACCESS_KEY", ""),
             s3_secret_key=os.getenv("SCW_SECRET_KEY", ""),

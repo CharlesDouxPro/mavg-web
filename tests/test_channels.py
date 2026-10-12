@@ -11,7 +11,7 @@ def test_create_stores_a_sparse_document_without_secrets(client, db, created):
     # Rien de ce que le serveur remplit lui-même : ni adresse, ni clé, ni défaut.
     assert "render" not in agent and "llm" not in agent
     text = str(stored)
-    assert "base_url" not in text and "token" not in text and "FOUNDRY" not in text
+    assert "base_url" not in text and "token" not in text and "LLM_" not in text
 
 
 def test_get_returns_defaults_filled_in(client, created):
@@ -93,7 +93,7 @@ def test_validation_rules(client, channel, mutate, field, message):
 def test_secrets_cannot_be_smuggled_in(client, channel):
     # Le channel n'a pas de champ base_url / token : le schéma les refuse.
     channel["agent_config"]["models"] = {
-        "slm": {"provider": "foundry", "model_name": "x", "base_url": "https://attacker.example/"}
+        "slm": {"provider": "sglang-llm", "model_name": "x", "base_url": "https://attacker.example/"}
     }
     assert client.post("/api/channels", json=channel).status_code == 422
 
@@ -101,7 +101,7 @@ def test_secrets_cannot_be_smuggled_in(client, channel):
 def test_catalog_lists_what_the_editor_offers(client):
     catalog = client.get("/api/catalog").json()
     assert catalog["skills"][0]["name"] == "tiktok-news-article-presentation"
-    assert {p["id"] for p in catalog["providers"]} == {"foundry", "sglang"}
+    assert {p["id"] for p in catalog["providers"]} == {"sglang-llm", "sglang"}
     assert catalog["languages"]["fr"] == "French"
     assert "Clips en vol" in catalog["help"]["RenderSettings"]["concurrency"]
     assert catalog["storage"] is True

@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api", tags=["catalog"])
 SKILLS_FILE = Path(__file__).resolve().parent.parent / "skills.json"
 
 MODEL_SUGGESTIONS = {
-    "foundry": ["claude-opus-4-7-1", "claude-haiku-4-5"],
+    "sglang-llm": ["DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU", "Qwen/Qwen3.8-27B-FP8"],
     "sglang": ["MiniMaxAI/MiniMax-H3"],
 }
 

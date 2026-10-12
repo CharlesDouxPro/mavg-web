@@ -53,7 +53,7 @@ def test_images_become_references_with_a_subject_label(client, db, story, monkey
     # Une adresse d'image n'a rien à faire dans « SUJET PRÉCIS » : elle n'y est pas.
     assert agent["params"] == {"idee": "un hérisson boulanger"}
     assert doc["run_params"]["heros"] == HERO
-    monkeypatch.setenv("FOUNDRY_RESOURCE", "hudex")
+    monkeypatch.setenv("LLM_BASE_URL", "http://llm:30000")
     message = load_task(doc).agent_config.user_message()
     assert "- <Subject 3> (<Picture 3>) : decor — la boutique." in message
 

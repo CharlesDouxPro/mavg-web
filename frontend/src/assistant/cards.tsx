@@ -226,6 +226,7 @@ function ChannelCardView({ card, busy, onAct }: CardProps<ChannelCard>) {
     min_total_seconds?: number;
     max_total_seconds?: number;
     max_silent_shots?: number;
+    max_characters?: number;
   };
   const saved = card.status === "done" ? card.result : null;
   return (
@@ -256,6 +257,7 @@ function ChannelCardView({ card, busy, onAct }: CardProps<ChannelCard>) {
           <dd>
             {(plan.arc ?? []).join(" → ")} · {plan.min_total_seconds}-{plan.max_total_seconds} s
             {plan.max_silent_shots ? ` · ${plan.max_silent_shots} plan${plan.max_silent_shots > 1 ? "s" : ""} muet${plan.max_silent_shots > 1 ? "s" : ""} au plus` : ""}
+            {plan.max_characters ? ` · ${plan.max_characters} personnage${plan.max_characters > 1 ? "s" : ""} inventé${plan.max_characters > 1 ? "s" : ""} au plus` : ""}
           </dd>
           <dt>Avatar</dt>
           <dd>

@@ -109,6 +109,11 @@ export function ChannelEditor({
   ];
   const imageParams = draft.parameters.filter((p) => p.type === "image" && PARAM_NAME.test(p.name)).map((p) => p.name);
   const avatarParam = soleToken(agent.avatar.avatar_url);
+  const invented = Number(agent.plan.max_characters ?? 0);
+  // Sans avatar, le réalisateur invente les personnages. C'est un état à part : un avatar
+  // fixe pas encore choisi a lui aussi une image vide.
+  const [noAvatar, setNoAvatar] = useState(() => !agent.avatar.avatar_url && invented > 0);
+  const avatarMode: "fixed" | "run" | "none" = avatarParam !== null ? "run" : noAvatar ? "none" : "fixed";
   const error = (key: string) => issueFor(issues, key);
   const warning = (key: string) => issueFor(warnings, key);
 
@@ -145,6 +150,13 @@ export function ChannelEditor({
       { name, type: "image", default: "", required: true, description: "L'image de l'avatar pour ce run : le personnage à l'écran." },
     ]);
     setAgent(["avatar", "avatar_url"], `\${${name}}`);
+  };
+
+  const chooseAvatarMode = (mode: "fixed" | "run" | "none") => {
+    setNoAvatar(mode === "none");
+    if (mode === "run") return avatarFromRun();
+    setAgent(["avatar", "avatar_url"], "");
+    if (mode === "none" && invented < 1) setAgent(["plan", "max_characters"], 1);
   };
 
   const save = useCallback(async () => {
@@ -437,7 +449,9 @@ export function ChannelEditor({
             <div className="avatar-grid">
               <div className="stack" style={{ gap: 8 }}>
                 <AvatarPreview uri={agent.avatar.avatar_url} kind={avatarKind} at={agent.avatar.reference_frame_s} known={picked} />
-                {avatarParam !== null ? (
+                {avatarMode === "none" ? (
+                  <span className="small muted">Inventé par le réalisateur, à chaque vidéo.</span>
+                ) : avatarParam !== null ? (
                   <span className="small muted">
                     Choisie au lancement, par <code>${"{"}{avatarParam}{"}"}</code>.
                   </span>
@@ -450,112 +464,134 @@ export function ChannelEditor({
                 )}
               </div>
               <div className="stack">
-                <Segmented<"fixed" | "run">
-                  value={avatarParam !== null ? "run" : "fixed"}
-                  onChange={(mode) => (mode === "run" ? avatarFromRun() : setAgent(["avatar", "avatar_url"], ""))}
+                <Segmented<"fixed" | "run" | "none">
+                  value={avatarMode}
+                  onChange={chooseAvatarMode}
                   options={[
                     { value: "fixed", label: "Image fixe" },
                     { value: "run", label: "Choisie à chaque run" },
+                    { value: "none", label: "Sans avatar" },
                   ]}
                 />
-                {avatarParam !== null ? (
-                  <Field
-                    label="Paramètre qui fournit l'image"
-                    error={error("agent_config.avatar.avatar_url")}
-                    help="Le formulaire de lancement la demande : le personnage change d'un run à l'autre, le channel reste le même."
-                  >
-                    <select
-                      className="input mono"
-                      value={avatarParam}
-                      onChange={(e) => setAgent(["avatar", "avatar_url"], `\${${e.target.value}}`)}
+                {avatarMode === "none" ? (
+                  <>
+                    <Field
+                      label="Personnages inventés, au plus"
+                      warning={warning("agent_config.avatar.avatar_url")}
+                      help="À chaque vidéo, le réalisateur écrit leur fiche, et un plan de casting la fige avant le rendu. Le premier est le personnage principal, à l'écran dans chaque plan."
                     >
-                      {imageParams.map((name) => (
-                        <option key={name} value={name}>
-                          ${"{"}
-                          {name}
-                          {"}"}
-                        </option>
-                      ))}
-                      {!imageParams.includes(avatarParam) && (
-                        <option value={avatarParam}>
-                          ${"{"}
-                          {avatarParam}
-                          {"}"} — pas un paramètre image
-                        </option>
-                      )}
-                    </select>
-                  </Field>
+                      <NumberInput value={invented} integer onChange={(value) => setAgent(["plan", "max_characters"], Math.max(1, value ?? 1))} />
+                    </Field>
+                    <Notice tone="info">
+                      Aucune image à fournir : les runs partent sans image de référence. Le brief dit qui sont les personnages, sans détailler leur physique ; la fiche de chacun décrit aussi sa voix.
+                    </Notice>
+                  </>
                 ) : (
-                  <Field error={error("agent_config.avatar.avatar_url")} warning={warning("agent_config.avatar.avatar_url")}>
-                    <AvatarPicker
-                      value={agent.avatar.avatar_url}
-                      suggestedName={agent.avatar.name}
-                      onPick={(avatar) => {
-                        setPicked((current) => ({ ...current, [avatar.uri]: avatar.url }));
-                        setAgent(["avatar", "avatar_url"], avatar.uri);
-                        if (!agent.avatar.name) setAgent(["avatar", "name"], avatar.name);
-                      }}
-                    />
-                  </Field>
-                )}
-                <div className="grid-2">
-                  <Field label="Nom de l'avatar">
-                    <input className="input" value={agent.avatar.name} placeholder="Nova" onChange={(e) => setAgent(["avatar", "name"], e.target.value)} />
-                  </Field>
-                  {avatarKind === "video" ? (
-                    <Field label="Frame de référence (s)" help={catalog.help.Avatar?.reference_frame_s ?? "Vide : le milieu de la vidéo."}>
-                      <NumberInput
-                        value={agent.avatar.reference_frame_s}
-                        nullable
-                        placeholder="milieu"
-                        onChange={(value) => setAgent(["avatar", "reference_frame_s"], value)}
-                      />
-                    </Field>
-                  ) : (
-                    <Field label="Rôle">
-                      <input
-                        className="input"
-                        value={agent.avatar.description}
-                        placeholder="présentatrice de la chaîne foot"
-                        onChange={(e) => setAgent(["avatar", "description"], e.target.value)}
-                      />
-                    </Field>
-                  )}
-                  {avatarKind === "video" && (
-                    <Field label="Rôle" className="wide">
-                      <input
-                        className="input"
-                        value={agent.avatar.description}
-                        placeholder="présentatrice de la chaîne foot"
-                        onChange={(e) => setAgent(["avatar", "description"], e.target.value)}
-                      />
-                    </Field>
-                  )}
-                  <Field
-                    label="Apparence (en anglais)"
-                    className="wide"
-                    warning={warning("agent_config.avatar.appearance")}
-                    help={
-                      avatarParam !== null ? (
-                        <>Le personnage change à chaque run : décris-le avec un paramètre texte, en anglais (ex. <code>${"{apparence}"}</code>).</>
+                  <>
+                    {avatarParam !== null ? (
+                      <Field
+                        label="Paramètre qui fournit l'image"
+                        error={error("agent_config.avatar.avatar_url")}
+                        help={
+                          invented > 0
+                            ? "Le formulaire de lancement la propose. Laissée vide, le réalisateur invente le personnage principal (rends le paramètre facultatif)."
+                            : "Le formulaire de lancement la demande : le personnage change d'un run à l'autre, le channel reste le même."
+                        }
+                      >
+                        <select
+                          className="input mono"
+                          value={avatarParam}
+                          onChange={(e) => setAgent(["avatar", "avatar_url"], `\${${e.target.value}}`)}
+                        >
+                          {imageParams.map((name) => (
+                            <option key={name} value={name}>
+                              ${"{"}
+                              {name}
+                              {"}"}
+                            </option>
+                          ))}
+                          {!imageParams.includes(avatarParam) && (
+                            <option value={avatarParam}>
+                              ${"{"}
+                              {avatarParam}
+                              {"}"} — pas un paramètre image
+                            </option>
+                          )}
+                        </select>
+                      </Field>
+                    ) : (
+                      <Field error={error("agent_config.avatar.avatar_url")} warning={warning("agent_config.avatar.avatar_url")}>
+                        <AvatarPicker
+                          value={agent.avatar.avatar_url}
+                          suggestedName={agent.avatar.name}
+                          onPick={(avatar) => {
+                            setPicked((current) => ({ ...current, [avatar.uri]: avatar.url }));
+                            setAgent(["avatar", "avatar_url"], avatar.uri);
+                            if (!agent.avatar.name) setAgent(["avatar", "name"], avatar.name);
+                          }}
+                        />
+                      </Field>
+                    )}
+                    <div className="grid-2">
+                      <Field label="Nom de l'avatar">
+                        <input className="input" value={agent.avatar.name} placeholder="Nova" onChange={(e) => setAgent(["avatar", "name"], e.target.value)} />
+                      </Field>
+                      {avatarKind === "video" ? (
+                        <Field label="Frame de référence (s)" help={catalog.help.Avatar?.reference_frame_s ?? "Vide : le milieu de la vidéo."}>
+                          <NumberInput
+                            value={agent.avatar.reference_frame_s}
+                            nullable
+                            placeholder="milieu"
+                            onChange={(value) => setAgent(["avatar", "reference_frame_s"], value)}
+                          />
+                        </Field>
                       ) : (
-                        "Préfixée à chaque plan : c'est elle qui empêche la tenue et la coupe de dériver."
-                      )
-                    }
-                  >
-                    <textarea
-                      className="input"
-                      rows={2}
-                      value={agent.avatar.appearance}
-                      placeholder="woman in her early thirties, shoulder-length dark brown hair, navy blazer, no glasses"
-                      onChange={(e) => setAgent(["avatar", "appearance"], e.target.value)}
-                    />
-                  </Field>
-                </div>
-                <div className="sep" />
-                <Field label="Voix de référence" error={error("agent_config.avatar.voice_url")} help="La même voix sur chaque plan. Écoute avant de choisir.">
-                  <VoicePicker value={agent.avatar.voice_url} language={agent.language} onPick={(uri) => setAgent(["avatar", "voice_url"], uri)} />
-                </Field>
+                        <Field label="Rôle">
+                          <input
+                            className="input"
+                            value={agent.avatar.description}
+                            placeholder="présentatrice de la chaîne foot"
+                            onChange={(e) => setAgent(["avatar", "description"], e.target.value)}
+                          />
+                        </Field>
+                      )}
+                      {avatarKind === "video" && (
+                        <Field label="Rôle" className="wide">
+                          <input
+                            className="input"
+                            value={agent.avatar.description}
+                            placeholder="présentatrice de la chaîne foot"
+                            onChange={(e) => setAgent(["avatar", "description"], e.target.value)}
+                          />
+                        </Field>
+                      )}
+                      <Field
+                        label="Apparence (en anglais)"
+                        className="wide"
+                        warning={warning("agent_config.avatar.appearance")}
+                        help={
+                          avatarParam !== null ? (
+                            <>Le personnage change à chaque run : décris-le avec un paramètre texte, en anglais (ex. <code>${"{apparence}"}</code>).</>
+                          ) : (
+                            "Préfixée à chaque plan : c'est elle qui empêche la tenue et la coupe de dériver."
+                          )
+                        }
+                      >
+                        <textarea
+                          className="input"
+                          rows={2}
+                          value={agent.avatar.appearance}
+                          placeholder="woman in her early thirties, shoulder-length dark brown hair, navy blazer, no glasses"
+                          onChange={(e) => setAgent(["avatar", "appearance"], e.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <div className="sep" />
+                    <Field label="Voix de référence" error={error("agent_config.avatar.voice_url")} help="La même voix sur chaque plan. Écoute avant de choisir.">
+                      <VoicePicker value={agent.avatar.voice_url} language={agent.language} onPick={(uri) => setAgent(["avatar", "voice_url"], uri)} />
+                    </Field>
+                  </>
+                )}
               </div>
             </div>
           </Section>

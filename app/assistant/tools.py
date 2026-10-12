@@ -30,6 +30,7 @@ from app.channels import (
     ChannelIn,
     ChannelParameter,
     from_document,
+    invents_characters,
     normalized,
     validate_channel,
 )
@@ -127,7 +128,8 @@ def readiness(draft: ChannelIn) -> tuple[list[str], list[str]]:
     """(ce qui bloque l'enregistrement, ce qu'il vaut mieux régler) pour un brouillon.
 
     En plus des règles de l'éditeur (`validate_channel`), celles que le réalisateur impose
-    à une vidéo réussie : une langue, et une apparence dès qu'il y a un avatar.
+    à une vidéo réussie : une langue, une apparence dès qu'il y a un avatar, et quelqu'un à
+    l'écran (un avatar, ou des personnages qu'il invente).
     """
     errors, warnings = validate_channel(normalized(draft))
     blocking = [_issue_text(item) for item in errors]
@@ -138,7 +140,14 @@ def readiness(draft: ChannelIn) -> tuple[list[str], list[str]]:
     if agent.avatar.avatar_url and not agent.avatar.appearance.strip():
         blocking.append("agent_config.avatar.appearance : décris l'avatar en anglais (set_avatar), c'est le verrou d'identité de chaque plan.")
         advice = [line for line in advice if not line.startswith("agent_config.avatar.appearance")]
-    if not agent.avatar.voice_url:
+    if not agent.avatar.avatar_url:
+        if not agent.plan.max_characters:
+            blocking.append(
+                "agent_config.avatar.avatar_url : ni avatar ni personnage inventé, aucun run ne partirait. "
+                "Une image (set_avatar), ou set_format(max_characters=1 ou plus)."
+            )
+            advice = [line for line in advice if not line.startswith("agent_config.avatar.avatar_url")]
+    elif not agent.avatar.voice_url:
         advice.append("agent_config.avatar.voice_url : sans voix, le modèle en invente une à chaque plan.")
     elif agent.language and f"/voices/{agent.language}/" not in agent.avatar.voice_url:
         advice.append("agent_config.avatar.voice_url : la voix n'est pas dans la langue du channel, l'accent suivra la voix.")
@@ -155,7 +164,14 @@ def describe(draft: ChannelIn, base_version: int | None) -> str:
     agent = draft.agent_config
     plan = agent.plan
     state = f"version {base_version} enregistrée" if base_version is not None else "pas encore enregistré"
-    silent = f"{plan.max_silent_shots} au plus" if plan.max_silent_shots else "aucun, l'avatar parle dans chaque plan"
+    silent = f"{plan.max_silent_shots} au plus" if plan.max_silent_shots else "aucun, le personnage principal parle dans chaque plan"
+    invented = f"{plan.max_characters} au plus" if plan.max_characters else "aucun"
+    if agent.avatar.avatar_url:
+        avatar = f"Avatar : {agent.avatar.name or '—'} · image {agent.avatar.avatar_url}"
+    elif plan.max_characters:
+        avatar = "Avatar : aucun, le réalisateur invente le personnage principal à chaque vidéo"
+    else:
+        avatar = "Avatar : aucun, et aucun personnage inventé : rien ne serait à l'écran"
     parameters = [
         f"{p.name} ({p.type}{', requis' if p.required else ''}{f', défaut « {p.default} »' if p.default else ''})"
         + (f" : {p.description}" if p.description else "")
@@ -173,9 +189,9 @@ def describe(draft: ChannelIn, base_version: int | None) -> str:
         (
             f"Format : arc {' → '.join(plan.arc)} ; {plan.min_total_seconds}-{plan.max_total_seconds} s ; "
             f"plans de {plan.min_shot_seconds}-{plan.max_shot_seconds} s ; "
-            f"plans muets : {silent}"
+            f"plans muets : {silent} ; personnages inventés : {invented}"
         ),
-        f"Avatar : {agent.avatar.name or '—'} · image {agent.avatar.avatar_url or 'aucune'}",
+        avatar,
         f"Apparence : {agent.avatar.appearance or '—'}",
         f"Voix : {agent.avatar.voice_url or 'aucune'}",
     ]
@@ -414,8 +430,9 @@ def build_tools(session, studio: Studio) -> list:
         min_shot_seconds: int | None = None,
         max_shot_seconds: int | None = None,
         max_silent_shots: int | None = None,
+        max_characters: int | None = None,
     ) -> str:
-        """Fixe le format des vidéos : l'arc narratif, les durées, les plans muets.
+        """Fixe le format des vidéos : l'arc narratif, les durées, les plans muets, le casting.
 
         arc: les rôles des plans, dans l'ordre ; le premier ouvre la vidéo, le dernier la
             ferme (ex. ["hook", "situation", "peripetie", "chute"]).
@@ -423,6 +440,10 @@ def build_tools(session, studio: Studio) -> list:
         min_shot_seconds, max_shot_seconds: la durée d'un plan (le moteur accepte 5 à 15 s).
         max_silent_shots: combien de plans peuvent se passer de réplique (l'avatar y est
             à l'écran sans parler : un geste, une réaction). 0 : il parle dans chaque plan.
+        max_characters: combien de personnages le réalisateur peut inventer par vidéo, sans
+            image : il écrit leur fiche, le rendu les fige par un plan de casting. Sans
+            avatar, il en faut au moins 1 : le premier est le personnage principal. 0 :
+            seuls l'avatar et les images de référence apparaissent.
         """
         current = draft().agent_config.plan
         roles = [role.strip() for role in arc] if arc is not None else list(current.arc)
@@ -448,6 +469,9 @@ def build_tools(session, studio: Studio) -> list:
         # Le réalisateur exige au moins un plan parlé : il en faut un de plus que de muets.
         if not 0 <= silent < max(possible):
             return f"Plans muets : entre 0 et {max(possible) - 1}, pour qu'au moins un plan parle."
+        invented = current.max_characters if max_characters is None else max_characters
+        if invented < 0:
+            return "Personnages inventés : 0 ou plus."
         return update(
             {
                 "agent_config": {
@@ -458,6 +482,7 @@ def build_tools(session, studio: Studio) -> list:
                         "min_shot_seconds": low_shot,
                         "max_shot_seconds": high_shot,
                         "max_silent_shots": silent,
+                        "max_characters": invented,
                     }
                 }
             }
@@ -480,7 +505,9 @@ def build_tools(session, studio: Studio) -> list:
             expression, ni décor.
         description: son rôle en quelques mots (ex. "boulanger du village, narrateur").
         avatar_uri: une image ou vidéo déjà dans le bucket (list_images). Une image neuve
-            arrive par la carte request_image, pas par ici.
+            arrive par la carte request_image, pas par ici. Chaîne vide : plus d'avatar, le
+            réalisateur invente le personnage principal à chaque vidéo (il faut alors
+            set_format(max_characters=1 ou plus)).
         """
         avatar: dict[str, Any] = {}
         if name is not None:
@@ -492,7 +519,9 @@ def build_tools(session, studio: Studio) -> list:
             if words > MAX_APPEARANCE_WORDS:
                 return f"Apparence trop longue ({words} mots) : 15 à 40 mots, l'essentiel visible et stable."
             avatar["appearance"] = appearance_en.strip()
-        if avatar_uri is not None:
+        if avatar_uri == "":
+            avatar.update(avatar_url="", appearance="", voice_url="", reference_frame_s=None)
+        elif avatar_uri is not None:
             avatar["avatar_url"] = checked_image(avatar_uri, {**IMAGE_TYPES, **VIDEO_TYPES})
             avatar["reference_frame_s"] = None
         return update({"agent_config": {"avatar": avatar}}) if avatar else "Rien à changer."
@@ -607,8 +636,8 @@ def build_tools(session, studio: Studio) -> list:
             return f"Channel {channel_id} introuvable : il doit être enregistré avant d'y lancer des runs."
         if not candidates or len(candidates) > MAX_CANDIDATES:
             return f"Propose 1 à {MAX_CANDIDATES} runs."
-        if not channel.agent_config.avatar.avatar_url:
-            return "Ce channel n'a pas d'avatar : aucun run ne partirait. Règle l'avatar d'abord."
+        if not channel.agent_config.avatar.avatar_url and not invents_characters(channel):
+            return "Ce channel n'a ni avatar ni personnage inventé : aucun run ne partirait. Règle l'un ou l'autre d'abord."
         parsed = [c if isinstance(c, RunCandidate) else RunCandidate.model_validate(c) for c in candidates]
         images = {parameter.name for parameter in channel.parameters if parameter.type == "image"}
         problems: list[str] = []

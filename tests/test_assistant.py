@@ -1,7 +1,7 @@
 """L'assistant : il construit un brouillon, pose des cartes, et seul un clic écrit.
 
 Le modèle est un faux scripté : chaque test dit ce que « l'agent » répond, appel d'outil
-par appel d'outil. Rien ne part vers Foundry, ni vers la vraie base, ni vers le bucket.
+par appel d'outil. Rien ne part vers le LLM, ni vers la vraie base, ni vers le bucket.
 """
 
 import copy
@@ -317,9 +317,9 @@ def test_an_attached_avatar_is_shown_to_the_agent(assistant, script, model, monk
 
 def test_a_failed_turn_keeps_the_message_and_frees_the_conversation(assistant, db, script):
     session_id = start(assistant)
-    script.replies.append(RuntimeError("Foundry injoignable"))
+    script.replies.append(RuntimeError("LLM injoignable"))
     response = say(assistant, session_id, "Bonjour")
-    assert response.status_code == 502 and "Foundry injoignable" in response.json()["detail"]
+    assert response.status_code == 502 and "LLM injoignable" in response.json()["detail"]
     view = assistant.get(f"/api/assistant/sessions/{session_id}").json()
     assert [item["kind"] for item in view["items"]] == ["user"] and not view["busy"]
 
@@ -335,10 +335,42 @@ def test_a_busy_conversation_refuses_a_second_request(assistant, db):
     assert say(assistant, session_id, "Bonjour").status_code == 409
 
 
-def test_without_foundry_keys_the_assistant_says_so(client, db, monkeypatch):
+def test_without_llm_address_the_assistant_says_so(client, db, monkeypatch):
     client.app.dependency_overrides[assistant_collection] = lambda: db.assistant_sessions
-    monkeypatch.delenv("FOUNDRY_RESOURCE", raising=False)
-    monkeypatch.delenv("FOUNDRY_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
     session_id = client.post("/api/assistant/sessions", json={}).json()["id"]
     response = say(client, session_id, "Bonjour")
-    assert response.status_code == 503 and "FOUNDRY_API_KEY" in response.json()["detail"]
+    assert response.status_code == 503 and "LLM_BASE_URL" in response.json()["detail"]
+
+
+# --- Sans avatar : le réalisateur invente les personnages ---
+
+
+def test_a_channel_without_avatar_needs_invented_characters(db, storage):
+    session = blank_session()
+    session.draft = ChannelIn.model_validate(copy.deepcopy(STORY))
+    tools = tools_for(session, db, storage)
+    run_tool(tools["set_avatar"], {"avatar_uri": ""})
+    avatar = session.draft.agent_config.avatar
+    assert (avatar.avatar_url, avatar.appearance, avatar.voice_url) == ("", "", "")
+    assert "ni avatar ni personnage inventé" in run_tool(tools["check_draft"], {})
+
+    run_tool(tools["set_format"], {"max_characters": 2})
+    report = run_tool(tools["check_draft"], {})
+    assert "ni avatar" not in report and "personnages inventés : 2 au plus" in report
+    assert "le réalisateur invente le personnage principal" in report
+    # Le message du réalisateur porte la consigne de casting.
+    assert "Cette chaîne n'a pas d'avatar" in report
+
+
+def test_runs_without_image_are_proposed_for_a_channel_that_invents(assistant, db, storage, story):
+    edit = copy.deepcopy(story)
+    edit["agent_config"]["avatar"] = {"name": "", "avatar_url": "", "description": "", "appearance": ""}
+    edit["agent_config"]["plan"]["max_characters"] = 1
+    assert assistant.put("/api/channels/herisson-boulanger", json=edit).status_code == 200
+
+    session = blank_session()
+    tools = tools_for(session, db, storage)
+    report = run_tool(tools["propose_runs"], {"channel_id": "herisson-boulanger", "candidates": [
+        {"pitch": "Sans image", "values": {"idee": "la fournée ratée"}}]})
+    assert "Carte posée" in report

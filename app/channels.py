@@ -76,9 +76,9 @@ class ModelChoice(BaseModel):
 class ChannelModels(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    master_mind: ModelChoice = ModelChoice(provider="foundry", model_name="claude-opus-4-7-1")
+    master_mind: ModelChoice = ModelChoice(provider="sglang-llm", model_name="DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU")
     """Le réalisateur : lit les skills, écrit le plan de tournage."""
-    slm: ModelChoice = ModelChoice(provider="foundry", model_name="claude-haiku-4-5")
+    slm: ModelChoice = ModelChoice(provider="sglang-llm", model_name="DavidAU/Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NM-DAU")
     """Le petit modèle : explique les échecs dans l'e-mail."""
     video_generator: ModelChoice = ModelChoice(provider="sglang", model_name="MiniMaxAI/MiniMax-H3")
     """Le moteur vidéo. Sert aussi d'`image_generator`, que le worker ne lit pas."""
@@ -204,14 +204,31 @@ def validate_channel(channel: ChannelIn) -> tuple[list[dict], list[dict]]:
         uri = getattr(agent.avatar, field)
         loc = ("agent_config", "avatar", field)
         if is_empty(uri):
-            if required:
-                warnings.append(issue(loc, "Pas encore d'avatar : il en faudra un pour lancer un run.", uri))
+            if required and not invents_characters(channel):
+                warnings.append(issue(loc, NO_AVATAR, uri))
         elif "${" not in uri and bucket_key(uri) is None:
             errors.append(issue(loc, f"Choisis un fichier du bucket (s3://{BUCKET}/…) : une adresse extérieure serait téléchargée par la machine GPU.", uri))
     if agent.avatar.avatar_url and not agent.avatar.appearance.strip():
         warnings.append(issue(("agent_config", "avatar", "appearance"), "Sans apparence décrite, rien ne verrouille la tenue d'un plan à l'autre.", ""))
+    if not agent.avatar.avatar_url and agent.avatar.voice_url:
+        warnings.append(issue(("agent_config", "avatar", "voice_url"), "Sans avatar, cette voix ne sert pas : chaque personnage inventé parle avec la voix que le réalisateur lui décrit.", agent.avatar.voice_url))
 
     return errors, warnings
+
+
+NO_AVATAR = (
+    "Pas d'avatar : choisis-en un, ou laisse le réalisateur inventer les personnages "
+    "(personnages inventés ≥ 1) pour lancer des runs sans image."
+)
+
+
+def invents_characters(channel: ChannelIn) -> bool:
+    """Le réalisateur peut inventer des personnages (`plan.max_characters`).
+
+    Un run peut alors partir sans image : sans avatar, le premier personnage inventé
+    prend sa place, `<Subject 1>`, à l'écran dans chaque plan.
+    """
+    return channel.agent_config.plan.max_characters > 0
 
 
 def avatar_parameter(channel: ChannelIn) -> str | None:
