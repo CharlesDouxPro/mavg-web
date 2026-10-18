@@ -10,11 +10,13 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.channels import (
+    NO_AVATAR,
     Channel,
     ChannelIn,
     ChannelUpdate,
     bucket_key,
     from_document,
+    invents_characters,
     normalized,
     to_document,
     validate_channel,
@@ -184,8 +186,8 @@ def launch_run(channel_id: str, body: LaunchRequest, channels: Channels, tasks: 
         )
     errors, _ = validate_channel(channel)
     avatar = channel.agent_config.avatar
-    if not avatar.avatar_url:
-        errors.append(issue(("channel", "agent_config", "avatar", "avatar_url"), "Ce channel n'a pas d'avatar : choisis-en un dans l'éditeur.", ""))
+    if not avatar.avatar_url and not invents_characters(channel):
+        errors.append(issue(("channel", "agent_config", "avatar", "avatar_url"), NO_AVATAR, ""))
     values, value_issues = resolve_values(channel, body.values)
     if storage is not None:
         # L'avatar fourni par un paramètre (`${personnage}`) se vérifie avec les autres images du run.

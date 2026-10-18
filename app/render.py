@@ -1,7 +1,7 @@
 """D'un channel et des valeurs d'un run à la tâche que le worker recevra.
 
 La tâche est un instantané complet : modifier le channel ensuite ne la change pas. Les
-secrets n'y figurent que sous forme de référence (`${FOUNDRY_API_KEY}`), résolue par le
+secrets n'y figurent que sous forme de référence (`${LLM_TOKEN}`), résolue par le
 worker ; l'adresse de chaque fournisseur vient du registre partagé, jamais du channel.
 
 Les paramètres `image` ne vont pas dans `params` : ils deviennent l'image de l'avatar
@@ -13,7 +13,14 @@ import secrets
 from datetime import datetime
 from typing import Any
 
-from app.channels import Channel, ChannelIn, ModelChoice, avatar_parameter
+from app.channels import (
+    NO_AVATAR,
+    Channel,
+    ChannelIn,
+    ModelChoice,
+    avatar_parameter,
+    invents_characters,
+)
 from app.issues import issue
 from app.params import as_text, coerce, is_empty, render
 from app.task_config import (
@@ -37,7 +44,8 @@ def resolve_values(channel: ChannelIn, submitted: dict[str, Any]) -> tuple[dict[
     """Les valeurs du run, typées puis écrites en texte, et les erreurs par paramètre.
 
     Absente ou nulle, une valeur prend le défaut du channel. Vide, un paramètre facultatif
-    est simplement omis — sauf celui qui fournit l'avatar : sans lui, pas de vidéo.
+    est simplement omis. Celui qui fournit l'avatar aussi, si le réalisateur peut inventer
+    le personnage principal ; sinon, sans lui, pas de vidéo.
     """
     issues: list[dict] = []
     declared = {parameter.name: parameter for parameter in channel.parameters}
@@ -53,10 +61,10 @@ def resolve_values(channel: ChannelIn, submitted: dict[str, Any]) -> tuple[dict[
             raw = parameter.default
         loc = ("values", name)
         if is_empty(raw):
-            if name == bound:
-                issues.append(issue(loc, "Paramètre requis : c'est l'image de l'avatar.", raw))
-            elif parameter.required:
+            if parameter.required:
                 issues.append(issue(loc, "Paramètre requis.", raw))
+            elif name == bound and not invents_characters(channel):
+                issues.append(issue(loc, f"C'est l'image de l'avatar. {NO_AVATAR}", raw))
             continue
         if isinstance(raw, str) and "${" in raw:
             issues.append(issue(loc, "Une valeur ne peut pas contenir « ${ ».", raw))
@@ -101,14 +109,19 @@ def build_agent(channel: ChannelIn, values: dict[str, str], keep_missing: bool =
     def fill(text: str) -> str:
         return render(text, {**texts, **labels}, keep_missing)
 
-    avatar = agent.avatar.model_copy(
-        update={
-            "avatar_url": render(agent.avatar.avatar_url.strip(), values, keep_missing),
-            "name": fill(agent.avatar.name),
-            "description": fill(agent.avatar.description),
-            "appearance": fill(agent.avatar.appearance),
-        }
-    )
+    avatar_url = render(agent.avatar.avatar_url.strip(), values, keep_missing)
+    # Sans image (pas d'avatar, ou son paramètre laissé vide), le réalisateur invente le
+    # personnage principal : la tâche part sans avatar, et lui devient <Subject 1>.
+    avatar = None
+    if avatar_url or not invents_characters(channel):
+        avatar = agent.avatar.model_copy(
+            update={
+                "avatar_url": avatar_url,
+                "name": fill(agent.avatar.name),
+                "description": fill(agent.avatar.description),
+                "appearance": fill(agent.avatar.appearance),
+            }
+        )
     must_include = [text for item in agent.publication.must_include if (text := fill(item).strip())]
     return AgentConfig(
         params=texts,

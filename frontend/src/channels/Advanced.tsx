@@ -37,6 +37,8 @@ const GROUPS: { section: Section; model: string; title: string; hint: string; ic
       { key: "max_shot_seconds", label: "Plan max (s)", kind: { type: "int" } },
       { key: "min_description_words", label: "Description min (mots)", kind: { type: "int" } },
       { key: "max_silent_shots", label: "Plans muets (max)", kind: { type: "int" } },
+      { key: "max_characters", label: "Personnages inventés (max)", kind: { type: "int" } },
+      { key: "min_appearance_words", label: "Fiche personnage min (mots)", kind: { type: "int" } },
       { key: "arc", label: "Arc narratif", kind: { type: "list", mono: true }, wide: true },
       { key: "forbidden_appearance_words", label: "Mots d'apparence interdits", kind: { type: "list" }, wide: true },
     ],

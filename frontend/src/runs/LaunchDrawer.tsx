@@ -201,13 +201,22 @@ export function LaunchDrawer({
                 <dl className="kv grow" style={{ margin: 0 }}>
                   <dt>Avatar</dt>
                   <dd>
-                    {agent.avatar.name || "—"}
+                    {agent.avatar.avatar_url ? agent.avatar.name || "—" : Number(agent.plan.max_characters ?? 0) > 0 ? "aucun · inventé par le réalisateur" : "—"}
                     {soleToken(agent.avatar.avatar_url) && (
-                      <span className="muted"> · image de <code>{soleToken(agent.avatar.avatar_url)}</code></span>
+                      <span className="muted">
+                        {" "}· image de <code>{soleToken(agent.avatar.avatar_url)}</code>
+                        {Number(agent.plan.max_characters ?? 0) > 0 && ", ou inventé si elle reste vide"}
+                      </span>
                     )}
                   </dd>
                   <dt>Voix</dt>
-                  <dd>{agent.avatar.voice_url ? agent.avatar.voice_url.split("/").pop()?.replace(".wav", "") : "inventée par le modèle"}</dd>
+                  <dd>
+                    {!agent.avatar.avatar_url
+                      ? "décrite par le réalisateur"
+                      : agent.avatar.voice_url
+                        ? agent.avatar.voice_url.split("/").pop()?.replace(".wav", "")
+                        : "inventée par le modèle"}
+                  </dd>
                   <dt>Langue</dt>
                   <dd>{agent.language ? `${flag(agent.language)} ${LANGUAGE_FR[agent.language] ?? agent.language}` : "libre"}</dd>
                   <dt>Livraison</dt>

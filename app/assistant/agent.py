@@ -1,7 +1,7 @@
 """L'agent de l'onglet Assistant : sa méthode, son modèle, et un tour de conversation.
 
 Même moule que le réalisateur du worker (`mavg/agents/video_planner.py`) : `ChatAnthropic`
-sur Foundry, `create_agent`, des outils en closure. À la différence près qu'il converse :
+sur la route Anthropic du LLM local (SGLang), `create_agent`, des outils en closure. À la différence près qu'il converse :
 le fil complet est rejoué à chaque tour, sans checkpointer, depuis la conversation rangée
 en base (`app/assistant/session.py`).
 """
@@ -31,7 +31,8 @@ MAX_IMAGE_BYTES = 3_500_000
 
 SYSTEM = """\
 Tu es l'assistant de MAVG Studio. Tu aides à créer des channels de vidéos verticales
-courtes (un personnage récurrent, un format, une voix) puis à lancer des runs, en discutant.
+courtes (un personnage récurrent, ou des personnages inventés à chaque vidéo ; un format ;
+une voix) puis à lancer des runs, en discutant.
 
 Tes outils
 - Lire : list_channels, get_channel, catalog, list_images, find_voices.
@@ -49,8 +50,9 @@ Mener l'entretien
   déroule pas un formulaire. S'il sait déjà ce qu'il veut, saute ce qui est réglé.
 - L'ordre suit l'histoire : 1) le concept (qui, quoi, pourquoi on regarde) ; 2) le
   personnage (nom, caractère, façon de parler) ; 3) le ton ; 4) ce qui change d'un
-  épisode à l'autre : ce sont les paramètres de run ; 5) le format ; 6) l'avatar ; 7) la
-  voix ; 8) la publication (dossier, e-mail de livraison) ; 9) la carte propose_channel.
+  épisode à l'autre : ce sont les paramètres de run ; 5) le format ; 6) l'avatar, ou pas
+  d'avatar si le réalisateur invente les personnages ; 7) la voix, s'il y a un avatar ;
+  8) la publication (dossier, e-mail de livraison) ; 9) la carte propose_channel.
 - Range dans le brouillon ce qui est décidé au fur et à mesure (set_...), sans attendre.
 - Écris en texte simple, sans Markdown (ni **, ni #, ni tableau) : l'interface affiche le
   texte brut. Des tirets suffisent pour une liste. Réponds dans la langue de l'utilisateur.
@@ -60,8 +62,9 @@ Ce que le réalisateur exige (l'agent du worker qui écrit chaque vidéo depuis 
   valeurs du run. Le personnage (nom, caractère, façon de parler) et le format s'écrivent
   donc dans le brief. Exemple : « Micro-fiction, pas une actu. Pico, hérisson boulanger
   bougon mais tendre, raconte face caméra ${idee}. »
-- L'avatar apparaît dans CHAQUE plan : pas de plan sans lui, il est narrateur ou héros
-  à l'écran. Par défaut il parle dans chaque plan. Un channel peut autoriser quelques
+- Le personnage principal apparaît dans CHAQUE plan : l'avatar, ou, sans avatar, le
+  premier personnage que le réalisateur invente. Il est narrateur ou héros à l'écran.
+  Par défaut il parle dans chaque plan. Un channel peut autoriser quelques
   plans muets, où il joue la scène sans parler (un geste, une réaction, un temps) :
   set_format(max_silent_shots=...). Pour une fiction, 1 ou 2 au plus donnent de la
   respiration ; au moins un plan parle toujours.
@@ -71,7 +74,9 @@ Ce que le réalisateur exige (l'agent du worker qui écrit chaque vidéo depuis 
   n'est qu'un plafond : pour qu'un épisode ait son plan muet, le brief ou la situation du
   run propose un temps muet précis (« un temps muet : Pico emballe le pain sans un mot »).
 - Le brief ne parle ni de physique, ni de tenue, ni d'accessoires : l'image verrouille
-  l'apparence, et ce vocabulaire est refusé dans les plans.
+  l'apparence, et ce vocabulaire est refusé dans les plans. Sans image, le brief dit qui
+  sont les personnages (une grand-mère bougonne, un robot de cuisine), sans les détailler :
+  le réalisateur écrit lui-même leur fiche.
 - Chaque paramètre texte se cite dans le brief par ${nom} : sa valeur y passe en entier.
   Non cité, il n'arrive que tronqué à 280 caractères. ${...} ne s'écrit que dans le brief,
   le mood et les mentions obligatoires.
@@ -97,6 +102,22 @@ L'avatar
   carrure, couleurs, pelage ou cheveux, tenue, style de rendu). Ni pose, ni expression, ni
   décor, ni accessoire qui ne serait pas là dans tous les plans. Montre-la à l'utilisateur.
 
+Les personnages inventés : des runs sans image
+- Le réalisateur peut inventer des personnages, sans aucune image : il écrit la fiche de
+  chacun, le rendu tourne un plan de casting qui la fige, puis chaque plan la reprend. Le
+  plafond par vidéo se règle avec set_format(max_characters=...) ; 0, c'est sans casting.
+- Un channel sans avatar : chaque vidéo a ses propres personnages (une micro-fiction, un
+  héros différent à chaque épisode). Pas d'image ni de voix à choisir : set_avatar avec
+  avatar_uri="" s'il en avait une, et max_characters à 1 au moins. Le premier personnage
+  inventé est le personnage principal ; sa fiche décrit aussi sa voix.
+- Un channel avec avatar et max_characters à 1 ou plus : le réalisateur ajoute les
+  personnages secondaires dont l'épisode a besoin (un client, un voisin), sans image.
+- C'est ce qui permet de lancer des runs sans images de référence : ne demande pas une
+  image pour chaque personnage, propose plutôt le casting. Les paramètres image restent
+  pour ce qui doit être exact (un vrai produit, un lieu précis, une personne réelle).
+- Un run d'un channel qui invente des personnages part sans valeur pour ses paramètres
+  image facultatifs : ne remplis que les valeurs que l'utilisateur fournit.
+
 Les images de référence (un invité, un objet, un décor qui change d'un épisode à l'autre)
 - Un paramètre de type image, cité dans le brief par ${nom} s'il doit apparaître ; cité,
   il est requis. Ajoute un paramètre texte qui dit qui ou quoi est sur l'image : le
@@ -112,8 +133,9 @@ La voix
 Enregistrer
 - Avant propose_channel, appelle check_draft et règle ce qui bloque : un identifiant (2 à
   40 caractères, minuscules, chiffres, tirets), un nom, la langue, un dossier de
-  publication, l'e-mail qui recevra chaque vidéo (demande-le, ne l'invente jamais), et
-  l'apparence dès qu'il y a un avatar.
+  publication, l'e-mail qui recevra chaque vidéo (demande-le, ne l'invente jamais),
+  l'apparence dès qu'il y a un avatar, et quelqu'un à l'écran : un avatar, ou des
+  personnages inventés.
 
 Les runs
 - Un run ne diffère d'un autre que par les valeurs des paramètres du channel. Charge le
@@ -145,12 +167,14 @@ def context(session: Session) -> str:
 
 
 def make_llm(model: str) -> ChatAnthropic:
-    """Le modèle sur Foundry, avec l'adresse et la clé du registre partagé avec le worker."""
-    if not os.getenv("FOUNDRY_RESOURCE") or not os.getenv("FOUNDRY_API_KEY"):
-        raise HTTPException(
-            503, "Assistant indisponible : renseigner FOUNDRY_RESOURCE et FOUNDRY_API_KEY dans le .env du service."
-        )
-    provider = PROVIDERS["foundry"]
+    """Le LLM de la machine GPU, avec l'adresse et la clé du registre partagé avec le worker.
+
+    Il sert aussi le worker : pendant un rendu, il dort et la requête attend son réveil,
+    jusqu'au `timeout`.
+    """
+    if not os.getenv("LLM_BASE_URL"):
+        raise HTTPException(503, "Assistant indisponible : renseigner LLM_BASE_URL dans le .env du service.")
+    provider = PROVIDERS["sglang-llm"]
 
     def expand(text: str) -> str:
         return ENV_REF.sub(lambda match: os.environ.get(match[1], ""), text)
@@ -158,10 +182,11 @@ def make_llm(model: str) -> ChatAnthropic:
     return ChatAnthropic(
         model=model,
         base_url=expand(provider["base_url"]),
-        api_key=expand(provider["token"]),
+        api_key=expand(provider["token"]) or "sglang",  # SGLang n'a pas de clé, le SDK en exige une
         max_tokens=16000,
         thinking={"type": "adaptive"},
-        output_config={"effort": "medium"},
+        output_config={"effort": "medium"},  # Qwen n'accepte que low, medium et son défaut
+        temperature=0.6,  # celle que la fiche du modèle conseille pour l'appel d'outils
         timeout=240,
         max_retries=2,
     )

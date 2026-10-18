@@ -34,9 +34,9 @@ def test_launch_inserts_a_rendered_snapshot(client, db, created):
     # Les valeurs restent aussi dans params : « SUJET PRÉCIS » et source_text marchent toujours.
     assert agent["params"] == {"source_url": "https://lequipe.fr/gyokeres", "angle": "la revanche", "duree": "45"}
     assert doc["channel_id"] == "foot-scoop-fr" and doc["channel_version"] == 1
-    assert doc["run_params"]["angle"] == "la revanche" and doc["schema_version"] == 4
+    assert doc["run_params"]["angle"] == "la revanche" and doc["schema_version"] == 5
     # Adresses et clés viennent du registre, pas du channel.
-    assert agent["models"]["master_mind"]["token"] == "${FOUNDRY_API_KEY}"
+    assert agent["models"]["master_mind"]["token"] == "${LLM_TOKEN}"
     assert agent["models"]["image_generator"]["model_name"] == "MiniMaxAI/MiniMax-H3"
 
 
@@ -46,8 +46,8 @@ def test_launched_task_loads_in_the_worker_and_leaks_nothing(client, db, created
     for loc, text in strings(doc):
         if "${" in text:
             assert SECRET_PATHS.search(".".join(map(str, loc))), f"${{…}} hors secret : {loc}"
-    monkeypatch.setenv("FOUNDRY_API_KEY", "resolved")
-    monkeypatch.setenv("FOUNDRY_RESOURCE", "hudex")
+    monkeypatch.setenv("LLM_TOKEN", "resolved")
+    monkeypatch.setenv("LLM_BASE_URL", "http://llm:30000")
     task = load_task(doc)
     assert task.agent_config.models.master_mind.token == "resolved"
     assert "SUJET PRÉCIS" in task.agent_config.user_message()
@@ -60,7 +60,7 @@ def test_required_unknown_and_invalid_values(client, created):
 
 
 def test_a_value_cannot_inject_a_worker_variable(client, created):
-    found = errors(launch(client, {**VALUES, "angle": "${FOUNDRY_API_KEY}"}))
+    found = errors(launch(client, {**VALUES, "angle": "${LLM_TOKEN}"}))
     assert "values.angle" in found
 
 
